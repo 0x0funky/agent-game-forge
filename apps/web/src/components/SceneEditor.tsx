@@ -82,6 +82,17 @@ export function SceneEditor(props: Props) {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   /** When non-null, user is composing a brand-new thread at this anchor. */
   const [draftAnchor, setDraftAnchor] = useState<CommentAnchor | null>(null);
+  const [showResolvedThreads, setShowResolvedThreads] = useState(false);
+
+  // Threads visible in the side panel + as pins. Resolved hidden by default.
+  const visibleThreads = useMemo(
+    () => (showResolvedThreads ? threads : threads.filter((t) => t.status === 'open')),
+    [threads, showResolvedThreads],
+  );
+  const resolvedCount = useMemo(
+    () => threads.filter((t) => t.status === 'resolved').length,
+    [threads],
+  );
 
   // Undo / redo stacks. Stored in refs to avoid re-renders on every push;
   // we bump `undoTick` for the buttons + tooltips.
@@ -360,22 +371,24 @@ export function SceneEditor(props: Props) {
       );
     }
 
-    // Comment pins — always rendered. Bigger/brighter in comments mode.
-    for (const t of threads) {
-      const at = anchorWorldPos(t.anchor, scene);
-      if (!at) continue;
-      drawCommentPin(
-        ctx,
-        at,
-        t.status === 'resolved',
-        mode === 'comments',
-        t.id === selectedThreadId,
-        camera.scale,
-      );
-    }
-    if (draftAnchor && mode === 'comments') {
-      const at = anchorWorldPos(draftAnchor, scene);
-      if (at) drawCommentPin(ctx, at, false, true, true, camera.scale);
+    // Comment pins — only rendered while in comments mode.
+    if (mode === 'comments') {
+      for (const t of visibleThreads) {
+        const at = anchorWorldPos(t.anchor, scene);
+        if (!at) continue;
+        drawCommentPin(
+          ctx,
+          at,
+          t.status === 'resolved',
+          true,
+          t.id === selectedThreadId,
+          camera.scale,
+        );
+      }
+      if (draftAnchor) {
+        const at = anchorWorldPos(draftAnchor, scene);
+        if (at) drawCommentPin(ctx, at, false, true, true, camera.scale);
+      }
     }
 
     ctx.restore();
@@ -391,7 +404,7 @@ export function SceneEditor(props: Props) {
     selectedZoneUid,
     selectedPath,
     mode,
-    threads,
+    visibleThreads,
     selectedThreadId,
     draftAnchor,
   ]);
@@ -620,12 +633,11 @@ export function SceneEditor(props: Props) {
 
     // ----- Comments mode -----
     if (mode === 'comments' && e.button === 0 && !e.altKey) {
-      // 1) Hit-test existing pins
-      const hit = findCommentPinAt(w, threads, scene);
+      // 1) Hit-test existing visible pins
+      const hit = findCommentPinAt(w, visibleThreads, scene);
       if (hit) {
         setSelectedThreadId(hit.id);
         setDraftAnchor(null);
-        // Allow panning the canvas while still in comments mode.
         dragRef.current = {
           kind: 'pan',
           startX: e.clientX,
@@ -635,9 +647,16 @@ export function SceneEditor(props: Props) {
         attachWindowDrag();
         return;
       }
-      // 2) Click on a non-pin: start a new draft pin at that point
+      // 2) Click on canvas — figure out if there's a node here. Shift forces a
+      //    point anchor regardless.
+      let anchor: CommentAnchor;
+      if (e.shiftKey) {
+        anchor = { kind: 'point', x: Math.round(w.x), y: Math.round(w.y) };
+      } else {
+        anchor = pickAnchorAt(w, scene);
+      }
       setSelectedThreadId(null);
-      setDraftAnchor({ kind: 'point', x: Math.round(w.x), y: Math.round(w.y) });
+      setDraftAnchor(anchor);
       dragRef.current = {
         kind: 'pan',
         startX: e.clientX,
@@ -1208,9 +1227,9 @@ export function SceneEditor(props: Props) {
         {scene && <span className="badge-dim">{scene.colliders.length} colliders</span>}
         {scene && <span className="badge-dim">{scene.zones.length} zones</span>}
         {scene && <span className="badge-dim">{scene.paths.length} paths</span>}
-        {threads.length > 0 && (
+        {threads.filter((t) => t.status === 'open').length > 0 && (
           <span className="badge-dim" style={{ color: 'var(--accent)' }}>
-            💬 {threads.filter((t) => t.status === 'open').length}/{threads.length}
+            💬 {threads.filter((t) => t.status === 'open').length} open
           </span>
         )}
         {scene?.background && (
@@ -1282,7 +1301,10 @@ export function SceneEditor(props: Props) {
           selectedCollider={selectedCollider}
           selectedZone={selectedZone}
           selectedPath={selectedPath}
-          threads={threads}
+          threads={visibleThreads}
+          resolvedCount={resolvedCount}
+          showResolved={showResolvedThreads}
+          onToggleShowResolved={() => setShowResolvedThreads((v) => !v)}
           selectedThreadId={selectedThreadId}
           draftAnchor={draftAnchor}
           projectPath={props.projectPath}
@@ -1388,6 +1410,9 @@ function ScenePanel({
   selectedZone,
   selectedPath,
   threads,
+  resolvedCount,
+  showResolved,
+  onToggleShowResolved,
   selectedThreadId,
   draftAnchor,
   onSelectProp,
@@ -1409,6 +1434,9 @@ function ScenePanel({
   selectedZone: SceneZone | null;
   selectedPath: { uid: string; pointIdx: number | null } | null;
   threads: CommentThread[];
+  resolvedCount: number;
+  showResolved: boolean;
+  onToggleShowResolved: () => void;
   selectedThreadId: string | null;
   draftAnchor: CommentAnchor | null;
   projectPath: string;
@@ -1675,11 +1703,23 @@ function ScenePanel({
 
       {mode === 'comments' && !draftAnchor && !selThread && (
         <div className="scene-panel-section" style={{ flex: 1, minHeight: 0 }}>
-          <div className="scene-panel-title">Comments</div>
+          <div className="scene-panel-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ flex: 1 }}>Comments</span>
+            {resolvedCount > 0 && (
+              <button
+                className="btn btn-sm btn-ghost"
+                onClick={onToggleShowResolved}
+                title={showResolved ? 'Hide resolved threads' : 'Show resolved threads too'}
+                style={{ fontSize: 10, padding: '2px 6px' }}
+              >
+                {showResolved ? `hide ${resolvedCount} resolved` : `${resolvedCount} resolved`}
+              </button>
+            )}
+          </div>
           <div className="scene-panel-list">
             {threads.length === 0 ? (
               <div className="muted" style={{ padding: 8, lineHeight: 1.5 }}>
-                Click anywhere on the canvas to drop a pin and start a thread.
+                Click anywhere on the canvas to drop a pin. Click on a prop / collider / zone to anchor to it; hold Shift for a free-floating pin.
               </div>
             ) : (
               threads.map((t) => (
@@ -1689,9 +1729,18 @@ function ScenePanel({
                   onClick={() => onSelectThread(t.id)}
                   style={t.status === 'resolved' ? { opacity: 0.6 } : undefined}
                 >
-                  <span className="mono" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {t.status === 'resolved' ? '✓' : '💬'}{' '}
-                    {t.messages[0]?.text.slice(0, 40) ?? '(empty)'}
+                  <span
+                    className="mono"
+                    style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                    title={t.anchor.kind === 'node' ? t.anchor.nodePath : undefined}
+                  >
+                    {t.status === 'resolved' ? '✓' : '💬'}
+                    {t.anchor.kind === 'node' ? ' ⚓' : ''}{' '}
+                    {t.messages[0]?.text.slice(0, 36) ?? '(empty)'}
                   </span>
                   <span className="muted mono" style={{ fontSize: 10 }}>
                     {t.messages.length}
@@ -1787,7 +1836,7 @@ function ScenePanel({
           ? 'Click a zone to select. Drag body to move, drag corner/handle to resize.'
           : mode === 'paths'
           ? 'Click a path to select; drag any point to move it. Bezier handles are kept.'
-          : 'Click empty canvas → drop a pin. Click a pin → open thread. "Ask Codex" sends thread context to chat.'}
+          : 'Click a node → anchored pin. Click empty canvas → free pin. Shift = always free. "Ask Codex" sends thread context to chat.'}
       </div>
     </aside>
   );
@@ -2152,8 +2201,54 @@ function findCommentPinAt(
 }
 
 function describeAnchor(anchor: CommentAnchor): string {
-  if (anchor.kind === 'node') return anchor.nodePath;
-  return `(${Math.round(anchor.x)}, ${Math.round(anchor.y)})`;
+  if (anchor.kind === 'node') return `node ${anchor.nodePath}`;
+  return `point (${Math.round(anchor.x)}, ${Math.round(anchor.y)})`;
+}
+
+/** When clicking in comments mode, prefer attaching to whatever node is under
+ *  the cursor (so the pin follows when the node moves). Falls back to a free
+ *  world point. */
+function pickAnchorAt(world: Vec2, scene: SceneModel): CommentAnchor {
+  // Props (top-most logical layer)
+  for (let i = scene.props.length - 1; i >= 0; i--) {
+    const p = scene.props[i];
+    // Cheap AABB based on scale-aware bounds (we'd need bank to be exact, but
+    // the click point is good enough as a hint — we use a generous radius).
+    const dx = world.x - (p.position.x + p.spriteOffset.x);
+    const dy = world.y - (p.position.y + p.spriteOffset.y);
+    if (Math.hypot(dx, dy) <= 60) {
+      return {
+        kind: 'node',
+        nodePath: p.nodePath,
+        fallback: { x: p.position.x, y: p.position.y },
+      };
+    }
+  }
+  // Colliders (.tscn-resident only — JSON-backed don't have node paths)
+  for (let i = scene.colliders.length - 1; i >= 0; i--) {
+    const c = scene.colliders[i];
+    if (c.ref.backend !== 'tscn') continue;
+    if (insideShape(world, c)) {
+      return {
+        kind: 'node',
+        nodePath: c.ref.nodePath,
+        fallback: { x: c.position.x, y: c.position.y },
+      };
+    }
+  }
+  // Zones
+  for (let i = scene.zones.length - 1; i >= 0; i--) {
+    const z = scene.zones[i];
+    if (z.ref.backend !== 'tscn') continue;
+    if (insideShape(world, z)) {
+      return {
+        kind: 'node',
+        nodePath: z.ref.nodePath,
+        fallback: { x: z.position.x, y: z.position.y },
+      };
+    }
+  }
+  return { kind: 'point', x: Math.round(world.x), y: Math.round(world.y) };
 }
 
 function buildAskCodexPrompt(thread: CommentThread, latestUserMsg?: string): string {
