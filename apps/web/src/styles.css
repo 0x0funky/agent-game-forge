@@ -741,8 +741,29 @@ input, textarea { font: inherit; color: inherit; background: none; border: 0; ou
   font-size: 13px;
   line-height: 1.5;
 }
-.msg-agent::before {
-  content: ""; position: absolute; left: 0; top: 2px; bottom: 2px;
+/* Tool cards (and the diff banner that surfaces inside an agent turn) stand
+   alone — pull them back to the panel's left edge so they don't share the
+   accent rail with the surrounding text. */
+.msg-agent .tool-card,
+.msg-agent .diff-banner {
+  margin-left: -12px;
+  margin-right: 0;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+/* Rail moved to per-block: only text / status blocks get the accent bar.
+   Tool cards stand on their own without it. */
+.msg-agent .md-block,
+.msg-agent .agent-thinking,
+.msg-agent .turn-footer,
+.msg-agent .msg-sys {
+  position: relative;
+}
+.msg-agent .md-block::before,
+.msg-agent .agent-thinking::before,
+.msg-agent .turn-footer::before,
+.msg-agent .msg-sys::before {
+  content: ""; position: absolute; left: -12px; top: 2px; bottom: 2px;
   width: 2px; background: var(--accent); border-radius: 2px;
 }
 .msg-agent p { margin: 0 0 8px; }
