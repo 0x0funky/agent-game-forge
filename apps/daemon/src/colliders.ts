@@ -1,0 +1,403 @@
+// Collider readers/writers for the two backends:
+//   - .tscn StaticBody2D + CollisionShape2D + RectangleShape2D/CircleShape2D
+//   - JSON sidecar (kindomrush style: blockers[] + buildZones[])
+//
+// Writers patch the source text to keep diffs minimal — for .tscn that means
+// editing the SubResource body, for JSON it means line-targeted regex replace.
+
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import type { ColliderRef, SceneCollider, Vec2 } from '@ogf/contracts';
+import {
+  findBodyLine,
+  formatVector2,
+  parseTscn,
+  parseVector2,
+  joinTscn,
+  readBodyValue,
+  type ParsedTscn,
+  type Section,
+} from './tscn-parse.js';
+
+const SHAPE_KINDS = new Set([
+  'RectangleShape2D',
+  'CircleShape2D',
+  'ConvexPolygonShape2D',
+  'CapsuleShape2D',
+]);
+
+/** Index sub_resources by id. */
+function indexSubResources(parsed: ParsedTscn): Map<string, Section> {
+  const out = new Map<string, Section>();
+  for (const s of parsed.sections) {
+    if (s.kind !== 'sub_resource') continue;
+    const id = s.attrs.id;
+    if (id) out.set(id, s);
+  }
+  return out;
+}
+
+/** Read the SubResource("X") id from a `shape = SubResource("X")` line. */
+function parseSubResourceRef(raw: string | null): string | null {
+  if (!raw) return null;
+  const m = /^SubResource\(\s*"([^"]+)"\s*\)/.exec(raw);
+  return m ? m[1] : null;
+}
+
+/** Parse a Godot 4 PackedVector2Array(...) literal. */
+function parsePackedVector2Array(raw: string | null): Vec2[] | null {
+  if (!raw) return null;
+  const m = /^PackedVector2Array\(\s*(.*)\)\s*$/s.exec(raw);
+  if (!m) return null;
+  const inner = m[1].trim();
+  if (inner === '') return [];
+  const nums = inner.split(/\s*,\s*/).map((x) => Number(x));
+  if (nums.length % 2 !== 0 || nums.some((n) => Number.isNaN(n))) return null;
+  const out: Vec2[] = [];
+  for (let i = 0; i < nums.length; i += 2) out.push({ x: nums[i], y: nums[i + 1] });
+  return out;
+}
+
+/** Read all colliders from a .tscn parse. */
+export function readTscnColliders(parsed: ParsedTscn): SceneCollider[] {
+  const subs = indexSubResources(parsed);
+  const out: SceneCollider[] = [];
+  let counter = 0;
+
+  // Find every CollisionShape2D node — its parent is the body (StaticBody2D / Area2D).
+  for (const csNode of parsed.sections) {
+    if (csNode.kind !== 'node') continue;
+    if (csNode.attrs.type !== 'CollisionShape2D') continue;
+    const parentPath = csNode.attrs.parent;
+    if (!parentPath || parentPath === '.') continue;
+
+    // The parent body owns the position; CollisionShape2D itself usually has 0,0.
+    const bodySection = parsed.sections.find(
+      (s) => s.kind === 'node' && nodeKey(s) === parentPath,
+    );
+    // Skip Area2D — those are zones (Phase 3).
+    if (!bodySection || bodySection.attrs.type === 'Area2D') continue;
+    if (bodySection.attrs.type !== 'StaticBody2D') continue;
+
+    const shapeRefId = parseSubResourceRef(readBodyValue(parsed, csNode, 'shape'));
+    if (!shapeRefId) continue;
+    const subResource = subs.get(shapeRefId);
+    if (!subResource) continue;
+
+    const position =
+      parseVector2(readBodyValue(parsed, bodySection, 'position')) ?? { x: 0, y: 0 };
+
+    const subType = subResource.attrs.type;
+    if (!SHAPE_KINDS.has(subType)) continue;
+
+    const kind = readKindMetadata(parsed, bodySection);
+    const baseRef: ColliderRef = {
+      backend: 'tscn',
+      nodePath: parentPath,
+      subResourceId: shapeRefId,
+    };
+    const uid = `tscn:${parentPath}:${counter++}`;
+
+    if (subType === 'RectangleShape2D') {
+      const size = parseVector2(readBodyValue(parsed, subResource, 'size')) ?? { x: 0, y: 0 };
+      out.push({
+        uid,
+        ref: baseRef,
+        name: bodySection.attrs.name ?? '',
+        kind,
+        position,
+        shape: { kind: 'rect', w: size.x, h: size.y },
+        editable: true,
+      });
+    } else if (subType === 'CircleShape2D') {
+      const r = Number(readBodyValue(parsed, subResource, 'radius') ?? 0);
+      out.push({
+        uid,
+        ref: baseRef,
+        name: bodySection.attrs.name ?? '',
+        kind,
+        position,
+        shape: { kind: 'circle', r },
+        editable: true,
+      });
+    } else if (subType === 'ConvexPolygonShape2D') {
+      const points = parsePackedVector2Array(readBodyValue(parsed, subResource, 'points')) ?? [];
+      out.push({
+        uid,
+        ref: baseRef,
+        name: bodySection.attrs.name ?? '',
+        kind,
+        position,
+        shape: { kind: 'polygon', points },
+        // Polygon point-edit is Phase 4.
+        editable: false,
+      });
+    }
+    // CapsuleShape2D handled later — render-only via fallback elsewhere if needed.
+  }
+
+  return out;
+}
+
+function nodeKey(s: Section): string {
+  const name = s.attrs.name ?? '';
+  const parent = s.attrs.parent;
+  if (parent === undefined) return name;
+  if (parent === '.') return name;
+  return `${parent}/${name}`;
+}
+
+function readKindMetadata(parsed: ParsedTscn, section: Section): string {
+  for (let i = section.headerLine + 1; i < section.endLine; i++) {
+    const line = parsed.lines[i];
+    const m = /^\s*metadata\/kind\s*=\s*"([^"]*)"/.exec(line);
+    if (m) return m[1];
+  }
+  return '';
+}
+
+// ---------- Writer: .tscn ----------
+
+export function writeTscnMoveCollider(
+  parsed: ParsedTscn,
+  ref: ColliderRef & { backend: 'tscn' },
+  position: Vec2,
+): void {
+  const bodySection = parsed.sections.find(
+    (s) => s.kind === 'node' && nodeKey(s) === ref.nodePath,
+  );
+  if (!bodySection) throw new Error(`tscn body not found: ${ref.nodePath}`);
+  patchOrInsertBodyLine(parsed, bodySection, 'position', `Vector2(${formatTwo(position.x, position.y)})`);
+}
+
+export function writeTscnResizeRect(
+  parsed: ParsedTscn,
+  ref: ColliderRef & { backend: 'tscn' },
+  w: number,
+  h: number,
+): void {
+  const sub = parsed.sections.find((s) => s.kind === 'sub_resource' && s.attrs.id === ref.subResourceId);
+  if (!sub) throw new Error(`sub_resource not found: ${ref.subResourceId}`);
+  patchOrInsertBodyLine(parsed, sub, 'size', `Vector2(${formatTwo(w, h)})`);
+}
+
+export function writeTscnResizeCircle(
+  parsed: ParsedTscn,
+  ref: ColliderRef & { backend: 'tscn' },
+  r: number,
+): void {
+  const sub = parsed.sections.find((s) => s.kind === 'sub_resource' && s.attrs.id === ref.subResourceId);
+  if (!sub) throw new Error(`sub_resource not found: ${ref.subResourceId}`);
+  patchOrInsertBodyLine(parsed, sub, 'radius', formatNumber(r));
+}
+
+function patchOrInsertBodyLine(parsed: ParsedTscn, section: Section, key: string, value: string): void {
+  const newLine = `${key} = ${value}`;
+  const idx = findBodyLine(parsed, section, key);
+  if (idx >= 0) {
+    parsed.lines[idx] = newLine;
+  } else {
+    parsed.lines.splice(section.headerLine + 1, 0, newLine);
+    for (const s of parsed.sections) {
+      if (s.headerLine > section.headerLine) {
+        s.headerLine++;
+        s.endLine++;
+      } else if (s.headerLine === section.headerLine) {
+        s.endLine++;
+      }
+    }
+  }
+}
+
+function formatTwo(a: number, b: number): string {
+  return `${formatNumber(a)}, ${formatNumber(b)}`;
+}
+
+function formatNumber(n: number): string {
+  if (Number.isInteger(n)) return String(n);
+  return Number.parseFloat(n.toFixed(6)).toString();
+}
+
+// ---------- JSON sidecar reader/writer ----------
+
+const COLLISION_JSON_HINTS = ['-collision.json', '_collision.json', 'collision.json'];
+
+export function findCollisionJsonPath(rootAbs: string, scenePath: string): string | null {
+  // 1) Look for a sibling-named file: scenes/Foo.tscn ↔ data/foo-collision.json
+  const baseName = path.basename(scenePath, path.extname(scenePath)).toLowerCase();
+  const dataDir = path.join(rootAbs, 'data');
+  if (existsSync(dataDir)) {
+    let names: string[] = [];
+    try {
+      names = readdirSync(dataDir);
+    } catch {
+      names = [];
+    }
+    // First pass: name contains scene base
+    for (const n of names) {
+      const lower = n.toLowerCase();
+      if (!COLLISION_JSON_HINTS.some((h) => lower.endsWith(h))) continue;
+      if (lower.includes(baseName) || baseName.includes(lower.replace(/-collision\.json$/, ''))) {
+        return path.posix.join('data', n);
+      }
+    }
+    // Fallback: any *-collision.json
+    for (const n of names) {
+      const lower = n.toLowerCase();
+      if (COLLISION_JSON_HINTS.some((h) => lower.endsWith(h))) return path.posix.join('data', n);
+    }
+  }
+  return null;
+}
+
+interface JsonBlocker {
+  id: string;
+  type?: 'rect' | 'circle' | 'polygon';
+  x?: number;
+  y?: number;
+  w?: number;
+  h?: number;
+  radius?: number;
+  points?: [number, number][];
+}
+
+interface CollisionJson {
+  blockers?: JsonBlocker[];
+  buildZones?: JsonBlocker[];
+}
+
+export function readJsonColliders(rootAbs: string, jsonRel: string): SceneCollider[] {
+  const abs = path.join(rootAbs, jsonRel);
+  if (!existsSync(abs)) return [];
+  let parsed: CollisionJson;
+  try {
+    parsed = JSON.parse(readFileSync(abs, 'utf8'));
+  } catch {
+    return [];
+  }
+  const out: SceneCollider[] = [];
+
+  function ingest(items: JsonBlocker[] | undefined, sectionName: 'blockers' | 'buildZones') {
+    if (!items) return;
+    for (const b of items) {
+      const ref: ColliderRef = {
+        backend: 'json',
+        relPath: jsonRel,
+        section: sectionName,
+        id: b.id,
+      };
+      const uid = `json:${sectionName}:${b.id}`;
+      if (b.type === 'rect') {
+        out.push({
+          uid,
+          ref,
+          name: b.id,
+          kind: sectionName === 'buildZones' ? 'buildzone' : 'blocker',
+          position: { x: (b.x ?? 0) + (b.w ?? 0) / 2, y: (b.y ?? 0) + (b.h ?? 0) / 2 },
+          shape: { kind: 'rect', w: b.w ?? 0, h: b.h ?? 0 },
+          editable: true,
+        });
+      } else if (b.type === 'circle') {
+        out.push({
+          uid,
+          ref,
+          name: b.id,
+          kind: sectionName === 'buildZones' ? 'buildzone' : 'blocker',
+          position: { x: b.x ?? 0, y: b.y ?? 0 },
+          shape: { kind: 'circle', r: b.radius ?? 0 },
+          editable: true,
+        });
+      } else if (b.type === 'polygon') {
+        const points = (b.points ?? []).map(([x, y]) => ({ x, y }));
+        // Compute centroid as the polygon "position" for HUD readouts.
+        const cx = points.reduce((a, p) => a + p.x, 0) / Math.max(1, points.length);
+        const cy = points.reduce((a, p) => a + p.y, 0) / Math.max(1, points.length);
+        out.push({
+          uid,
+          ref,
+          name: b.id,
+          kind: sectionName === 'buildZones' ? 'buildzone' : 'blocker',
+          position: { x: cx, y: cy },
+          shape: { kind: 'polygon', points },
+          editable: false, // polygon edit = Phase 4
+        });
+      }
+    }
+  }
+
+  ingest(parsed.blockers, 'blockers');
+  ingest(parsed.buildZones, 'buildZones');
+  return out;
+}
+
+/** Patch a single collider's fields in JSON text via line-targeted regex. */
+export function applyJsonColliderEdit(
+  rootAbs: string,
+  ref: ColliderRef & { backend: 'json' },
+  patch: { x?: number; y?: number; w?: number; h?: number; radius?: number },
+): void {
+  const abs = path.join(rootAbs, ref.relPath);
+  const text = readFileSync(abs, 'utf8');
+
+  // Identify the line by the id quote — works because IDs are stable per row.
+  // We also gate by the matching section to avoid cross-talk.
+  const lines = text.split(/\r?\n/);
+  let inSection = false;
+  let depth = 0;
+  let updated = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!inSection) {
+      if (new RegExp(`"${ref.section}"\\s*:\\s*\\[`).test(line)) {
+        inSection = true;
+        depth = countChar(line, '[') - countChar(line, ']');
+        continue;
+      }
+    } else {
+      depth += countChar(line, '[') - countChar(line, ']');
+      // We're scanning blocker rows. Match `"id": "X"` on this line.
+      const idRe = new RegExp(`"id"\\s*:\\s*"${escapeRe(ref.id)}"`);
+      if (idRe.test(line)) {
+        let next = line;
+        for (const [k, v] of Object.entries(patch)) {
+          if (typeof v !== 'number') continue;
+          next = patchField(next, k, v);
+        }
+        if (next !== line) {
+          lines[i] = next;
+          updated = true;
+          break;
+        }
+      }
+      if (depth <= 0) break;
+    }
+  }
+  if (!updated) {
+    throw new Error(
+      `JSON collider not found for patch: ${ref.section} id=${ref.id} (or already up-to-date)`,
+    );
+  }
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  writeFileSync(abs, lines.join(eol), 'utf8');
+}
+
+function patchField(line: string, field: string, value: number): string {
+  const re = new RegExp(`("${field}"\\s*:\\s*)(-?\\d+(?:\\.\\d+)?)`);
+  if (!re.test(line)) {
+    // Field missing — insert just before the closing brace of this object
+    return line.replace(/\}\s*,?\s*$/, (close) => `, "${field}": ${formatNumber(value)} ${close}`);
+  }
+  return line.replace(re, (_, lhs) => `${lhs}${formatNumber(value)}`);
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function countChar(s: string, c: string): number {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) if (s[i] === c) n++;
+  return n;
+}
+
+export { joinTscn, parseTscn };

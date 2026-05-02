@@ -109,6 +109,109 @@ async function main() {
   assert.strictEqual(krRestored, krBefore, 'kr restore must be byte-identical');
   console.log('[ok] kr write/restore byte-identical');
 
+  // ---------- Phase 2: collider read + edit ----------
+  console.log('\n--- meadow colliders (.tscn) ---');
+  const meadow = loadScene({ rootAbs: ROOT, relPath: REL });
+  console.log(`[ok] colliders: ${meadow.scene.colliders.length}`);
+  console.log(`     jsonPath: ${meadow.scene.collidersJsonPath}`);
+  const northBoundary = meadow.scene.colliders.find((c) => c.name === 'north_boundary');
+  assert.ok(northBoundary, 'expected north_boundary');
+  assert.strictEqual(northBoundary.shape.kind, 'rect');
+  if (northBoundary.shape.kind === 'rect') {
+    assert.strictEqual(northBoundary.shape.w, 1920);
+    assert.strictEqual(northBoundary.shape.h, 128);
+  }
+  console.log(`[ok] north_boundary at (${northBoundary.position.x},${northBoundary.position.y}) rect`);
+
+  // Resize + move + restore
+  const beforeMeadowText = readFileSync(path.join(ROOT, REL), 'utf8');
+  applyOps({
+    rootAbs: ROOT,
+    relPath: REL,
+    ops: [
+      { kind: 'move-collider', ref: northBoundary.ref, position: { x: 970, y: 70 } },
+      { kind: 'resize-rect-collider', ref: northBoundary.ref, w: 1900, h: 120 },
+    ],
+  });
+  const meadow2 = loadScene({ rootAbs: ROOT, relPath: REL });
+  const nb2 = meadow2.scene.colliders.find((c) => c.name === 'north_boundary');
+  assert.strictEqual(nb2?.position.x, 970);
+  assert.strictEqual(nb2?.position.y, 70);
+  if (nb2?.shape.kind === 'rect') {
+    assert.strictEqual(nb2.shape.w, 1900);
+    assert.strictEqual(nb2.shape.h, 120);
+  }
+  console.log(`[ok] meadow collider edit: pos+size updated`);
+  applyOps({
+    rootAbs: ROOT,
+    relPath: REL,
+    ops: [
+      { kind: 'move-collider', ref: northBoundary.ref, position: { x: 960, y: 64 } },
+      { kind: 'resize-rect-collider', ref: northBoundary.ref, w: 1920, h: 128 },
+    ],
+  });
+  const restored = readFileSync(path.join(ROOT, REL), 'utf8');
+  assert.strictEqual(restored, beforeMeadowText, 'meadow collider restore byte-identical');
+  console.log('[ok] meadow collider restore byte-identical');
+
+  console.log('\n--- kindomrush colliders (.json) ---');
+  const kr2 = loadScene({ rootAbs: KR_ROOT, relPath: KR_REL });
+  console.log(`[ok] colliders: ${kr2.scene.colliders.length} jsonPath=${kr2.scene.collidersJsonPath}`);
+  const castle = kr2.scene.colliders.find((c) => c.name === 'castle_wall');
+  assert.ok(castle, 'expected castle_wall');
+  if (castle.shape.kind === 'rect') {
+    assert.strictEqual(castle.shape.w, 180);
+    assert.strictEqual(castle.shape.h, 245);
+  }
+  // x=1510, y=0, w=180, h=245 → center = (1600, 122.5)
+  assert.strictEqual(castle.position.x, 1600);
+  assert.strictEqual(castle.position.y, 122.5);
+  console.log(`[ok] castle_wall center=(${castle.position.x},${castle.position.y}) rect`);
+
+  // Edit JSON: move + resize, then restore
+  const krJsonPath = kr2.scene.collidersJsonPath!;
+  const beforeJson = readFileSync(path.join(KR_ROOT, krJsonPath), 'utf8');
+  applyOps({
+    rootAbs: KR_ROOT,
+    relPath: KR_REL,
+    ops: [
+      { kind: 'move-collider', ref: castle.ref, position: { x: 1700, y: 200 } },
+      { kind: 'resize-rect-collider', ref: castle.ref, w: 200, h: 250 },
+    ],
+  });
+  const kr3 = loadScene({ rootAbs: KR_ROOT, relPath: KR_REL });
+  const c2 = kr3.scene.colliders.find((c) => c.name === 'castle_wall');
+  assert.ok(c2);
+  assert.strictEqual(c2.position.x, 1700);
+  assert.strictEqual(c2.position.y, 200);
+  if (c2.shape.kind === 'rect') {
+    assert.strictEqual(c2.shape.w, 200);
+    assert.strictEqual(c2.shape.h, 250);
+  }
+  console.log('[ok] kr JSON collider edit applied');
+
+  // Restore
+  applyOps({
+    rootAbs: KR_ROOT,
+    relPath: KR_REL,
+    ops: [
+      { kind: 'resize-rect-collider', ref: castle.ref, w: 180, h: 245 },
+      { kind: 'move-collider', ref: castle.ref, position: { x: 1600, y: 122.5 } },
+    ],
+  });
+  const afterJson = readFileSync(path.join(KR_ROOT, krJsonPath), 'utf8');
+  assert.strictEqual(afterJson, beforeJson, 'kr JSON collider restore byte-identical');
+  console.log('[ok] kr JSON collider restore byte-identical');
+
+  // Circle (buildZone)
+  const slot = kr2.scene.colliders.find((c) => c.name === 'slot_01');
+  assert.ok(slot);
+  assert.strictEqual(slot.shape.kind, 'circle');
+  if (slot.shape.kind === 'circle') {
+    assert.strictEqual(slot.shape.r, 58);
+  }
+  console.log(`[ok] slot_01 circle r=58 at (${slot.position.x},${slot.position.y})`);
+
   console.log('\n[PASS] all smoke checks');
 }
 

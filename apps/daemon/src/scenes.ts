@@ -3,11 +3,21 @@ import path from 'node:path';
 import type {
   LoadSceneResponse,
   SceneBackground,
+  SceneCollider,
   SceneImagePayload,
   SceneModel,
   SceneOp,
   SceneProp,
 } from '@ogf/contracts';
+import {
+  applyJsonColliderEdit,
+  findCollisionJsonPath,
+  readJsonColliders,
+  readTscnColliders,
+  writeTscnMoveCollider,
+  writeTscnResizeCircle,
+  writeTscnResizeRect,
+} from './colliders.js';
 import {
   findBodyLine,
   formatVector2,
@@ -311,11 +321,35 @@ export function loadScene(opts: LoadOptions): LoadSceneResponse {
 
   const rootName = nodes.rootSection?.attrs.name ?? path.posix.basename(opts.relPath);
 
+  // ----- Colliders -----
+  // Prefer .tscn-resident colliders. Fall back to JSON sidecar (kindomrush style).
+  const tscnColliders: SceneCollider[] = readTscnColliders(parsed);
+  let colliders: SceneCollider[] = tscnColliders;
+  let collidersJsonPath: string | null = null;
+  if (tscnColliders.length === 0) {
+    const jsonRel = findCollisionJsonPath(opts.rootAbs, opts.relPath);
+    if (jsonRel) {
+      colliders = readJsonColliders(opts.rootAbs, jsonRel);
+      collidersJsonPath = jsonRel;
+    }
+  } else {
+    // If there's also a JSON sidecar, mention it so the user knows.
+    const jsonRel = findCollisionJsonPath(opts.rootAbs, opts.relPath);
+    if (jsonRel) {
+      collidersJsonPath = jsonRel;
+      notes.push(
+        `A JSON collision sidecar exists at ${jsonRel} — edits go to the .tscn (the scene-tree source of truth).`,
+      );
+    }
+  }
+
   const scene: SceneModel = {
     scenePath: opts.relPath,
     rootName,
     background,
     props,
+    colliders,
+    collidersJsonPath,
     notes,
   };
 
@@ -339,6 +373,7 @@ export function applyOps(opts: ApplyOpsOptions): ApplyOpsResult {
   const text = readFileSync(sceneAbs, 'utf8');
   const parsed = parseTscn(text);
   const nodes = indexNodes(parsed);
+  let tscnDirty = false;
 
   for (const op of opts.ops) {
     if (op.kind === 'move-prop') {
@@ -349,9 +384,7 @@ export function applyOps(opts: ApplyOpsOptions): ApplyOpsResult {
       if (idx >= 0) {
         parsed.lines[idx] = newLine;
       } else {
-        // Insert as the first body line after the header.
         parsed.lines.splice(section.headerLine + 1, 0, newLine);
-        // Shift any sections after this one by 1.
         for (const s of parsed.sections) {
           if (s.headerLine > section.headerLine) {
             s.headerLine++;
@@ -361,12 +394,75 @@ export function applyOps(opts: ApplyOpsOptions): ApplyOpsResult {
           }
         }
       }
+      tscnDirty = true;
+    } else if (op.kind === 'move-collider') {
+      if (op.ref.backend === 'tscn') {
+        writeTscnMoveCollider(parsed, op.ref, op.position);
+        tscnDirty = true;
+      } else {
+        applyJsonColliderEditForMove(opts.rootAbs, op.ref, op.position);
+      }
+    } else if (op.kind === 'resize-rect-collider') {
+      const ref = op.ref;
+      if (ref.backend === 'tscn') {
+        writeTscnResizeRect(parsed, ref, op.w, op.h);
+        tscnDirty = true;
+      } else {
+        // JSON rects store top-left, but the model exposes center. Preserve
+        // the visual center across a resize so users don't see drift.
+        const colliders = readJsonColliders(opts.rootAbs, ref.relPath);
+        const target = colliders.find(
+          (c) => c.ref.backend === 'json' && c.ref.id === ref.id,
+        );
+        if (!target || target.shape.kind !== 'rect') {
+          throw new Error(`json rect collider not found: ${ref.id}`);
+        }
+        const tlx = target.position.x - op.w / 2;
+        const tly = target.position.y - op.h / 2;
+        applyJsonColliderEdit(opts.rootAbs, ref, { x: tlx, y: tly, w: op.w, h: op.h });
+      }
+    } else if (op.kind === 'resize-circle-collider') {
+      if (op.ref.backend === 'tscn') {
+        writeTscnResizeCircle(parsed, op.ref, op.r);
+        tscnDirty = true;
+      } else {
+        applyJsonColliderEdit(opts.rootAbs, op.ref, { radius: op.r });
+      }
     } else {
       throw new Error(`unsupported op kind: ${(op as { kind: string }).kind}`);
     }
   }
 
-  const newText = joinTscn(parsed);
-  writeFileSync(sceneAbs, newText, 'utf8');
-  return { size: Buffer.byteLength(newText, 'utf8') };
+  if (tscnDirty) {
+    const newText = joinTscn(parsed);
+    writeFileSync(sceneAbs, newText, 'utf8');
+    return { size: Buffer.byteLength(newText, 'utf8') };
+  }
+  return { size: Buffer.byteLength(text, 'utf8') };
+}
+
+/** JSON colliders store rects as top-left + (w,h) but our model uses center.
+ *  Convert center-position back to top-left when writing.
+ */
+function applyJsonColliderEditForMove(
+  rootAbs: string,
+  ref: import('@ogf/contracts').ColliderRef & { backend: 'json' },
+  centerPos: { x: number; y: number },
+): void {
+  // We need the current shape to know whether to translate center→tl (rect) or pass through (circle/polygon).
+  // Re-read from disk; cheap.
+  const colliders = readJsonColliders(rootAbs, ref.relPath);
+  const target = colliders.find((c) => c.ref.backend === 'json' && c.ref.id === ref.id);
+  if (!target) throw new Error(`json collider not found: ${ref.id}`);
+
+  if (target.shape.kind === 'rect') {
+    const tlx = centerPos.x - target.shape.w / 2;
+    const tly = centerPos.y - target.shape.h / 2;
+    applyJsonColliderEdit(rootAbs, ref, { x: tlx, y: tly });
+  } else if (target.shape.kind === 'circle') {
+    applyJsonColliderEdit(rootAbs, ref, { x: centerPos.x, y: centerPos.y });
+  } else {
+    // Polygon move = translate all points; Phase 4 territory.
+    throw new Error('polygon move not yet supported');
+  }
 }

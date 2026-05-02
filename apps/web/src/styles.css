@@ -1982,3 +1982,28 @@ input, textarea { font: inherit; color: inherit; background: none; border: 0; ou
   border-color: var(--line-strong);
 }
 .scene-pick-row .muted { color: var(--ink-3); }
+
+.scene-mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-right: 6px;
+}
+.scene-mode-btn {
+  background: transparent;
+  border: 0;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+.scene-mode-btn + .scene-mode-btn {
+  border-left: 1px solid var(--line);
+}
+.scene-mode-btn:hover { color: var(--ink-0); }
+.scene-mode-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}

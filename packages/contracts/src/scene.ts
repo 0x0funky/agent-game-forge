@@ -37,6 +37,29 @@ export interface SceneProp {
   metadata: Record<string, string>;
 }
 
+export type ColliderShape =
+  | { kind: 'rect'; w: number; h: number }
+  | { kind: 'circle'; r: number }
+  | { kind: 'polygon'; points: Vec2[] };
+
+/** Where this collider lives + how to address it for writes. */
+export type ColliderRef =
+  | { backend: 'tscn'; nodePath: string; subResourceId: string }
+  | { backend: 'json'; relPath: string; section: string; id: string };
+
+export interface SceneCollider {
+  /** Stable per-load id for UI keys. Not used by writers — use `ref` instead. */
+  uid: string;
+  ref: ColliderRef;
+  name: string;
+  /** "blocker", "buildzone", "water", "prop", "edge", etc. — preserved verbatim. */
+  kind: string;
+  position: Vec2;
+  shape: ColliderShape;
+  /** False when we don't yet support edits to this shape kind in this backend. */
+  editable: boolean;
+}
+
 export interface SceneModel {
   /** Source .tscn path, project-relative. */
   scenePath: string;
@@ -46,6 +69,10 @@ export interface SceneModel {
   background: SceneBackground | null;
   /** Draggable props. */
   props: SceneProp[];
+  /** Collision shapes (StaticBody2D or JSON sidecar). */
+  colliders: SceneCollider[];
+  /** When non-empty, the daemon used a JSON sidecar (project-relative). */
+  collidersJsonPath: string | null;
   /** Notes the editor surfaces in the UI (e.g. "TileMap layers not yet editable"). */
   notes: string[];
 }
@@ -80,7 +107,26 @@ export interface MovePropOp {
   position: Vec2;
 }
 
-export type SceneOp = MovePropOp;
+export interface MoveColliderOp {
+  kind: 'move-collider';
+  ref: ColliderRef;
+  position: Vec2;
+}
+
+export interface ResizeRectColliderOp {
+  kind: 'resize-rect-collider';
+  ref: ColliderRef;
+  w: number;
+  h: number;
+}
+
+export interface ResizeCircleColliderOp {
+  kind: 'resize-circle-collider';
+  ref: ColliderRef;
+  r: number;
+}
+
+export type SceneOp = MovePropOp | MoveColliderOp | ResizeRectColliderOp | ResizeCircleColliderOp;
 
 export interface ApplySceneOpsRequest {
   projectPath: string;

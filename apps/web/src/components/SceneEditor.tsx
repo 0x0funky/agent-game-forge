@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  ColliderRef,
   LoadSceneResponse,
+  SceneCollider,
   SceneImagePayload,
   SceneModel,
   SceneOp,
@@ -9,6 +11,9 @@ import type {
 } from '@ogf/contracts';
 import { applySceneOps, fetchScene } from '../lib/api.js';
 import { I } from './icons.js';
+
+type EditMode = 'props' | 'colliders';
+type ResizeCorner = 'tl' | 'tr' | 'bl' | 'br';
 
 interface Props {
   projectPath: string;
@@ -35,20 +40,6 @@ const MIN_SCALE = 0.05;
 const MAX_SCALE = 4;
 const HANDLE_RADIUS = 6;
 
-function cloneScene(s: SceneModel): SceneModel {
-  return {
-    ...s,
-    background: s.background ? { ...s.background } : null,
-    props: s.props.map((p) => ({
-      ...p,
-      position: { ...p.position },
-      spriteOffset: { ...p.spriteOffset },
-      scale: { ...p.scale },
-      metadata: { ...p.metadata },
-    })),
-    notes: [...s.notes],
-  };
-}
 
 export function SceneEditor(props: Props) {
   const [loading, setLoading] = useState(true);
@@ -56,6 +47,8 @@ export function SceneEditor(props: Props) {
   const [scene, setScene] = useState<SceneModel | null>(null);
   const [bank, setBank] = useState<ImageBank>({ imgs: new Map(), sizes: new Map() });
   const [selectedNodePath, setSelectedNodePath] = useState<string | null>(null);
+  const [selectedColliderUid, setSelectedColliderUid] = useState<string | null>(null);
+  const [mode, setMode] = useState<EditMode>('props');
   const [savingState, setSavingState] = useState<'idle' | 'saving' | 'error' | 'saved'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [camera, setCamera] = useState<Camera>({ scale: 0.5, panX: 0, panY: 0 });
@@ -170,14 +163,25 @@ export function SceneEditor(props: Props) {
 
     // Props
     for (const p of scene.props) {
-      drawProp(ctx, p, bank, p.nodePath === selectedNodePath);
+      drawProp(ctx, p, bank, mode === 'props' && p.nodePath === selectedNodePath);
+    }
+
+    // Colliders — always rendered, but only "active" appearance in collider mode.
+    for (const c of scene.colliders) {
+      drawCollider(
+        ctx,
+        c,
+        mode === 'colliders',
+        mode === 'colliders' && c.uid === selectedColliderUid,
+        camera.scale,
+      );
     }
 
     ctx.restore();
 
     // HUD
     drawHud(ctx, cssW, cssH, camera);
-  }, [scene, bank, camera, selectedNodePath]);
+  }, [scene, bank, camera, selectedNodePath, selectedColliderUid, mode]);
 
   useEffect(() => {
     draw();
@@ -193,7 +197,32 @@ export function SceneEditor(props: Props) {
 
   type DragState =
     | { kind: 'pan'; startX: number; startY: number; startPan: Vec2 }
-    | { kind: 'prop'; nodePath: string; startWorld: Vec2; startProp: Vec2 };
+    | { kind: 'prop'; nodePath: string; startWorld: Vec2; startProp: Vec2 }
+    | {
+        kind: 'collider-move';
+        uid: string;
+        ref: ColliderRef;
+        startWorld: Vec2;
+        startPos: Vec2;
+      }
+    | {
+        kind: 'collider-resize-rect';
+        uid: string;
+        ref: ColliderRef;
+        corner: ResizeCorner;
+        startWorld: Vec2;
+        startPos: Vec2;
+        startW: number;
+        startH: number;
+      }
+    | {
+        kind: 'collider-resize-circle';
+        uid: string;
+        ref: ColliderRef;
+        startWorld: Vec2;
+        startCenter: Vec2;
+        startR: number;
+      };
   const dragRef = useRef<DragState | null>(null);
   const saveTimerRef = useRef<number | null>(null);
 
@@ -207,7 +236,6 @@ export function SceneEditor(props: Props) {
 
   function findPropAt(world: Vec2): SceneProp | null {
     if (!scene) return null;
-    // Iterate from top (last drawn) to bottom for hit-test priority.
     for (let i = scene.props.length - 1; i >= 0; i--) {
       const p = scene.props[i];
       const r = propBounds(p, bank);
@@ -224,9 +252,128 @@ export function SceneEditor(props: Props) {
     return null;
   }
 
+  function findColliderAt(world: Vec2): SceneCollider | null {
+    if (!scene) return null;
+    for (let i = scene.colliders.length - 1; i >= 0; i--) {
+      const c = scene.colliders[i];
+      if (insideCollider(world, c)) return c;
+    }
+    return null;
+  }
+
+  /** Hit-test rect resize handles for the selected collider. World-space radius scaled by camera. */
+  function findResizeHandle(world: Vec2): { uid: string; corner: ResizeCorner } | null {
+    if (!scene || mode !== 'colliders' || !selectedColliderUid) return null;
+    const c = scene.colliders.find((x) => x.uid === selectedColliderUid);
+    if (!c || c.shape.kind !== 'rect' || !c.editable) return null;
+    const r = rectFromCollider(c);
+    const corners: { name: ResizeCorner; p: Vec2 }[] = [
+      { name: 'tl', p: { x: r.x, y: r.y } },
+      { name: 'tr', p: { x: r.x + r.w, y: r.y } },
+      { name: 'bl', p: { x: r.x, y: r.y + r.h } },
+      { name: 'br', p: { x: r.x + r.w, y: r.y + r.h } },
+    ];
+    const tol = (HANDLE_RADIUS + 2) / camera.scale;
+    for (const cor of corners) {
+      if (Math.abs(world.x - cor.p.x) <= tol && Math.abs(world.y - cor.p.y) <= tol) {
+        return { uid: c.uid, corner: cor.name };
+      }
+    }
+    return null;
+  }
+
+  function findCircleRadiusHandle(world: Vec2): string | null {
+    if (!scene || mode !== 'colliders' || !selectedColliderUid) return null;
+    const c = scene.colliders.find((x) => x.uid === selectedColliderUid);
+    if (!c || c.shape.kind !== 'circle' || !c.editable) return null;
+    const handle = { x: c.position.x + c.shape.r, y: c.position.y };
+    const tol = (HANDLE_RADIUS + 2) / camera.scale;
+    if (Math.abs(world.x - handle.x) <= tol && Math.abs(world.y - handle.y) <= tol) {
+      return c.uid;
+    }
+    return null;
+  }
+
   function onMouseDown(e: React.MouseEvent) {
     if (!scene) return;
     const w = clientToWorld(e);
+
+    // ----- Collider mode -----
+    if (mode === 'colliders' && e.button === 0 && !e.altKey) {
+      // 1) Resize handle on selected rect collider?
+      const handle = findResizeHandle(w);
+      if (handle) {
+        const c = scene.colliders.find((x) => x.uid === handle.uid);
+        if (c && c.shape.kind === 'rect') {
+          const r = rectFromCollider(c);
+          dragRef.current = {
+            kind: 'collider-resize-rect',
+            uid: c.uid,
+            ref: c.ref,
+            corner: handle.corner,
+            startWorld: w,
+            startPos: { x: r.x, y: r.y },
+            startW: r.w,
+            startH: r.h,
+          };
+          attachWindowDrag();
+          return;
+        }
+      }
+      // 2) Radius handle on selected circle?
+      const circleUid = findCircleRadiusHandle(w);
+      if (circleUid) {
+        const c = scene.colliders.find((x) => x.uid === circleUid);
+        if (c && c.shape.kind === 'circle') {
+          dragRef.current = {
+            kind: 'collider-resize-circle',
+            uid: c.uid,
+            ref: c.ref,
+            startWorld: w,
+            startCenter: { ...c.position },
+            startR: c.shape.r,
+          };
+          attachWindowDrag();
+          return;
+        }
+      }
+      // 3) Body of any collider?
+      const colHit = findColliderAt(w);
+      if (colHit) {
+        setSelectedColliderUid(colHit.uid);
+        if (colHit.editable) {
+          dragRef.current = {
+            kind: 'collider-move',
+            uid: colHit.uid,
+            ref: colHit.ref,
+            startWorld: w,
+            startPos: { ...colHit.position },
+          };
+        } else {
+          // Read-only — pan instead so users can keep moving the camera.
+          dragRef.current = {
+            kind: 'pan',
+            startX: e.clientX,
+            startY: e.clientY,
+            startPan: { x: camera.panX, y: camera.panY },
+          };
+        }
+        attachWindowDrag();
+        return;
+      }
+      // 4) Empty space → deselect + pan
+      setSelectedColliderUid(null);
+      dragRef.current = {
+        kind: 'pan',
+        startX: e.clientX,
+        startY: e.clientY,
+        startPan: { x: camera.panX, y: camera.panY },
+      };
+      attachWindowDrag();
+      return;
+    }
+
+    // ----- Props mode (default) -----
     const hit = findPropAt(w);
     if (e.button === 0 && hit && !e.altKey && !e.shiftKey) {
       setSelectedNodePath(hit.nodePath);
@@ -237,7 +384,6 @@ export function SceneEditor(props: Props) {
         startProp: { ...hit.position },
       };
     } else {
-      // Start a pan
       if (e.button === 0 && !hit) setSelectedNodePath(null);
       dragRef.current = {
         kind: 'pan',
@@ -246,6 +392,10 @@ export function SceneEditor(props: Props) {
         startPan: { x: camera.panX, y: camera.panY },
       };
     }
+    attachWindowDrag();
+  }
+
+  function attachWindowDrag() {
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
   }
@@ -265,7 +415,6 @@ export function SceneEditor(props: Props) {
       const dy = w.y - ds.startWorld.y;
       const nx = ds.startProp.x + dx;
       const ny = ds.startProp.y + dy;
-      // Snap to whole pixel by default; hold Shift for sub-pixel.
       const snap = !ev.shiftKey;
       const pos = snap ? { x: Math.round(nx), y: Math.round(ny) } : { x: nx, y: ny };
       setScene((s) =>
@@ -278,6 +427,44 @@ export function SceneEditor(props: Props) {
             }
           : s,
       );
+      return;
+    }
+    if (ds.kind === 'collider-move') {
+      const w = clientToWorld(ev);
+      const dx = w.x - ds.startWorld.x;
+      const dy = w.y - ds.startWorld.y;
+      const snap = !ev.shiftKey;
+      const pos = {
+        x: snap ? Math.round(ds.startPos.x + dx) : ds.startPos.x + dx,
+        y: snap ? Math.round(ds.startPos.y + dy) : ds.startPos.y + dy,
+      };
+      setScene((s) => updateColliderPosition(s, ds.uid, pos));
+      return;
+    }
+    if (ds.kind === 'collider-resize-rect') {
+      const w = clientToWorld(ev);
+      const r = resizedRect(ds.corner, ds.startPos, ds.startW, ds.startH, w);
+      const snap = !ev.shiftKey;
+      const newW = Math.max(2, snap ? Math.round(r.w) : r.w);
+      const newH = Math.max(2, snap ? Math.round(r.h) : r.h);
+      const newCenter = { x: r.x + newW / 2, y: r.y + newH / 2 };
+      setScene((s) =>
+        updateColliderRect(s, ds.uid, newCenter, newW, newH),
+      );
+      return;
+    }
+    if (ds.kind === 'collider-resize-circle') {
+      const w = clientToWorld(ev);
+      const dx = w.x - ds.startCenter.x;
+      const dy = w.y - ds.startCenter.y;
+      const snap = !ev.shiftKey;
+      let r = Math.sqrt(dx * dx + dy * dy);
+      if (snap) r = Math.round(r);
+      r = Math.max(2, r);
+      setScene((s) =>
+        updateColliderCircle(s, ds.uid, ds.startCenter, r),
+      );
+      return;
     }
   }
 
@@ -286,7 +473,9 @@ export function SceneEditor(props: Props) {
     dragRef.current = null;
     window.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('mouseup', onMouseUp);
-    if (ds?.kind === 'prop' && scene) {
+    if (!scene || !ds) return;
+
+    if (ds.kind === 'prop') {
       const moved = scene.props.find((p) => p.nodePath === ds.nodePath);
       if (
         moved &&
@@ -294,6 +483,44 @@ export function SceneEditor(props: Props) {
       ) {
         scheduleSave({ kind: 'move-prop', nodePath: ds.nodePath, position: moved.position });
       }
+      return;
+    }
+    if (ds.kind === 'collider-move') {
+      const cur = scene.colliders.find((c) => c.uid === ds.uid);
+      if (
+        cur &&
+        (cur.position.x !== ds.startPos.x || cur.position.y !== ds.startPos.y)
+      ) {
+        scheduleSave({ kind: 'move-collider', ref: ds.ref, position: cur.position });
+      }
+      return;
+    }
+    if (ds.kind === 'collider-resize-rect') {
+      const cur = scene.colliders.find((c) => c.uid === ds.uid);
+      if (cur && cur.shape.kind === 'rect') {
+        const sizeChanged = cur.shape.w !== ds.startW || cur.shape.h !== ds.startH;
+        const movedX = cur.position.x !== ds.startPos.x + ds.startW / 2;
+        const movedY = cur.position.y !== ds.startPos.y + ds.startH / 2;
+        if (sizeChanged) {
+          scheduleSave({
+            kind: 'resize-rect-collider',
+            ref: ds.ref,
+            w: cur.shape.w,
+            h: cur.shape.h,
+          });
+        }
+        if (movedX || movedY) {
+          scheduleSave({ kind: 'move-collider', ref: ds.ref, position: cur.position });
+        }
+      }
+      return;
+    }
+    if (ds.kind === 'collider-resize-circle') {
+      const cur = scene.colliders.find((c) => c.uid === ds.uid);
+      if (cur && cur.shape.kind === 'circle' && cur.shape.r !== ds.startR) {
+        scheduleSave({ kind: 'resize-circle-collider', ref: ds.ref, r: cur.shape.r });
+      }
+      return;
     }
   }
 
@@ -372,6 +599,10 @@ export function SceneEditor(props: Props) {
     () => scene?.props.find((p) => p.nodePath === selectedNodePath) ?? null,
     [scene, selectedNodePath],
   );
+  const selectedCollider = useMemo(
+    () => scene?.colliders.find((c) => c.uid === selectedColliderUid) ?? null,
+    [scene, selectedColliderUid],
+  );
 
   // -------- Render UI --------
 
@@ -380,12 +611,14 @@ export function SceneEditor(props: Props) {
       <div className="crumbs">
         <span>{props.relPath}</span>
         {scene && <span className="badge-dim">{scene.props.length} props</span>}
+        {scene && <span className="badge-dim">{scene.colliders.length} colliders</span>}
         {scene?.background && (
           <span className="badge-dim">
             {scene.background.source === 'tilemap-preview' ? 'tilemap (preview)' : 'image bg'}
           </span>
         )}
         <span className="actions">
+          <ModeToggle mode={mode} setMode={setMode} />
           <SaveBadge state={savingState} error={saveError} />
           <button
             className="btn btn-sm btn-ghost"
@@ -436,8 +669,11 @@ export function SceneEditor(props: Props) {
         </div>
         <ScenePanel
           scene={scene}
-          selected={selectedProp}
-          onSelect={setSelectedNodePath}
+          mode={mode}
+          selectedProp={selectedProp}
+          selectedCollider={selectedCollider}
+          onSelectProp={setSelectedNodePath}
+          onSelectCollider={setSelectedColliderUid}
         />
       </div>
     </div>
@@ -473,12 +709,18 @@ function SaveBadge({
 
 function ScenePanel({
   scene,
-  selected,
-  onSelect,
+  mode,
+  selectedProp,
+  selectedCollider,
+  onSelectProp,
+  onSelectCollider,
 }: {
   scene: SceneModel | null;
-  selected: SceneProp | null;
-  onSelect: (path: string | null) => void;
+  mode: EditMode;
+  selectedProp: SceneProp | null;
+  selectedCollider: SceneCollider | null;
+  onSelectProp: (path: string | null) => void;
+  onSelectCollider: (uid: string | null) => void;
 }) {
   return (
     <aside className="scene-panel">
@@ -494,6 +736,13 @@ function ScenePanel({
               <span className="muted">props</span>
               <span className="mono">{scene.props.length}</span>
             </div>
+            <div className="scene-panel-row">
+              <span className="muted">colliders</span>
+              <span className="mono">
+                {scene.colliders.length}
+                {scene.collidersJsonPath ? ' (json)' : scene.colliders.length > 0 ? ' (tscn)' : ''}
+              </span>
+            </div>
             {scene.background && (
               <div className="scene-panel-row">
                 <span className="muted">bg</span>
@@ -507,53 +756,84 @@ function ScenePanel({
           <div className="muted">No scene loaded</div>
         )}
       </div>
-      <div className="scene-panel-section" style={{ flex: 1, minHeight: 0 }}>
-        <div className="scene-panel-title">Props</div>
-        <div className="scene-panel-list">
-          {scene?.props.map((p) => (
-            <button
-              key={p.nodePath}
-              className={`scene-prop-item ${selected?.nodePath === p.nodePath ? 'active' : ''}`}
-              onClick={() => onSelect(p.nodePath)}
-            >
-              <span className="mono">{p.name}</span>
-              <span className="muted mono">
-                {Math.round(p.position.x)},{Math.round(p.position.y)}
-              </span>
-            </button>
-          ))}
-          {scene && scene.props.length === 0 && (
-            <div className="muted" style={{ padding: 8 }}>
-              No draggable props in this scene.
-            </div>
-          )}
+
+      {mode === 'props' && (
+        <div className="scene-panel-section" style={{ flex: 1, minHeight: 0 }}>
+          <div className="scene-panel-title">Props</div>
+          <div className="scene-panel-list">
+            {scene?.props.map((p) => (
+              <button
+                key={p.nodePath}
+                className={`scene-prop-item ${selectedProp?.nodePath === p.nodePath ? 'active' : ''}`}
+                onClick={() => onSelectProp(p.nodePath)}
+              >
+                <span className="mono">{p.name}</span>
+                <span className="muted mono">
+                  {Math.round(p.position.x)},{Math.round(p.position.y)}
+                </span>
+              </button>
+            ))}
+            {scene && scene.props.length === 0 && (
+              <div className="muted" style={{ padding: 8 }}>
+                No draggable props in this scene.
+              </div>
+            )}
+          </div>
         </div>
-      </div>
-      {selected && (
+      )}
+
+      {mode === 'colliders' && (
+        <div className="scene-panel-section" style={{ flex: 1, minHeight: 0 }}>
+          <div className="scene-panel-title">Colliders</div>
+          <div className="scene-panel-list">
+            {scene?.colliders.map((c) => (
+              <button
+                key={c.uid}
+                className={`scene-prop-item ${selectedCollider?.uid === c.uid ? 'active' : ''}`}
+                onClick={() => onSelectCollider(c.uid)}
+                title={c.editable ? '' : 'Read-only — Phase 4 will add polygon editing'}
+              >
+                <span className="mono">
+                  {c.shape.kind === 'rect' ? '▭' : c.shape.kind === 'circle' ? '○' : '◇'} {c.name}
+                  {!c.editable && ' ·🔒'}
+                </span>
+                <span className="muted mono">{c.kind || c.shape.kind}</span>
+              </button>
+            ))}
+            {scene && scene.colliders.length === 0 && (
+              <div className="muted" style={{ padding: 8 }}>
+                No colliders in this scene.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {mode === 'props' && selectedProp && (
         <div className="scene-panel-section">
-          <div className="scene-panel-title">Selected</div>
+          <div className="scene-panel-title">Selected prop</div>
           <div className="scene-panel-row">
             <span className="muted">name</span>
-            <span className="mono">{selected.name}</span>
+            <span className="mono">{selectedProp.name}</span>
           </div>
           <div className="scene-panel-row">
             <span className="muted">position</span>
             <span className="mono">
-              ({Math.round(selected.position.x)}, {Math.round(selected.position.y)})
+              ({Math.round(selectedProp.position.x)}, {Math.round(selectedProp.position.y)})
             </span>
           </div>
-          {selected.texture && (
+          {selectedProp.texture && (
             <div className="scene-panel-row">
               <span className="muted">texture</span>
               <span className="mono" style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {selected.texture.split('/').pop()}
+                {selectedProp.texture.split('/').pop()}
               </span>
             </div>
           )}
-          {Object.entries(selected.metadata).length > 0 && (
+          {Object.entries(selectedProp.metadata).length > 0 && (
             <>
               <div className="scene-panel-title sub">metadata</div>
-              {Object.entries(selected.metadata).map(([k, v]) => (
+              {Object.entries(selectedProp.metadata).map(([k, v]) => (
                 <div className="scene-panel-row" key={k}>
                   <span className="muted">{k}</span>
                   <span className="mono">{v}</span>
@@ -563,10 +843,87 @@ function ScenePanel({
           )}
         </div>
       )}
+
+      {mode === 'colliders' && selectedCollider && (
+        <div className="scene-panel-section">
+          <div className="scene-panel-title">Selected collider</div>
+          <div className="scene-panel-row">
+            <span className="muted">name</span>
+            <span className="mono">{selectedCollider.name}</span>
+          </div>
+          <div className="scene-panel-row">
+            <span className="muted">kind</span>
+            <span className="mono">{selectedCollider.kind || '—'}</span>
+          </div>
+          <div className="scene-panel-row">
+            <span className="muted">shape</span>
+            <span className="mono">{selectedCollider.shape.kind}</span>
+          </div>
+          <div className="scene-panel-row">
+            <span className="muted">center</span>
+            <span className="mono">
+              ({Math.round(selectedCollider.position.x)}, {Math.round(selectedCollider.position.y)})
+            </span>
+          </div>
+          {selectedCollider.shape.kind === 'rect' && (
+            <div className="scene-panel-row">
+              <span className="muted">size</span>
+              <span className="mono">
+                {Math.round(selectedCollider.shape.w)} × {Math.round(selectedCollider.shape.h)}
+              </span>
+            </div>
+          )}
+          {selectedCollider.shape.kind === 'circle' && (
+            <div className="scene-panel-row">
+              <span className="muted">radius</span>
+              <span className="mono">{Math.round(selectedCollider.shape.r)}</span>
+            </div>
+          )}
+          {selectedCollider.shape.kind === 'polygon' && (
+            <div className="scene-panel-row">
+              <span className="muted">points</span>
+              <span className="mono">{selectedCollider.shape.points.length}</span>
+            </div>
+          )}
+          {!selectedCollider.editable && (
+            <div className="muted" style={{ fontSize: 10.5, marginTop: 4 }}>
+              Polygon edit lands in Phase 4.
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="scene-panel-foot muted">
-        Drag a prop to move. Drag empty space to pan. Wheel to zoom. Hold Shift while dragging for sub-pixel.
+        {mode === 'props'
+          ? 'Drag a prop to move. Drag empty space to pan. Wheel to zoom. Shift = sub-pixel.'
+          : 'Click a collider to select. Drag body to move, drag corner/handle to resize. Shift = sub-pixel.'}
       </div>
     </aside>
+  );
+}
+
+function ModeToggle({ mode, setMode }: { mode: EditMode; setMode: (m: EditMode) => void }) {
+  return (
+    <span className="scene-mode-toggle" role="tablist">
+      <button
+        role="tab"
+        aria-selected={mode === 'props'}
+        onClick={() => setMode('props')}
+        className={`scene-mode-btn ${mode === 'props' ? 'active' : ''}`}
+        title="Move props"
+      >
+        props
+      </button>
+      <button
+        role="tab"
+        aria-selected={mode === 'colliders'}
+        onClick={() => setMode('colliders')}
+        className={`scene-mode-btn ${mode === 'colliders' ? 'active' : ''}`}
+        title="Edit collision shapes"
+      >
+        colliders
+      </button>
+    </span>
   );
 }
 
@@ -601,6 +958,230 @@ async function decodeImages(r: LoadSceneResponse): Promise<ImageBank> {
     ),
   );
   return { imgs, sizes };
+}
+
+// ============= Collider helpers =============
+
+function rectFromCollider(c: SceneCollider): { x: number; y: number; w: number; h: number } {
+  if (c.shape.kind !== 'rect') return { x: c.position.x, y: c.position.y, w: 0, h: 0 };
+  return {
+    x: c.position.x - c.shape.w / 2,
+    y: c.position.y - c.shape.h / 2,
+    w: c.shape.w,
+    h: c.shape.h,
+  };
+}
+
+function insideCollider(p: Vec2, c: SceneCollider): boolean {
+  if (c.shape.kind === 'rect') {
+    const r = rectFromCollider(c);
+    return p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h;
+  }
+  if (c.shape.kind === 'circle') {
+    const dx = p.x - c.position.x;
+    const dy = p.y - c.position.y;
+    return dx * dx + dy * dy <= c.shape.r * c.shape.r;
+  }
+  // polygon — point-in-polygon (ray cast)
+  const pts = c.shape.points;
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].x;
+    const yi = pts[i].y;
+    const xj = pts[j].x;
+    const yj = pts[j].y;
+    const intersect =
+      yi > p.y !== yj > p.y && p.x < ((xj - xi) * (p.y - yi)) / (yj - yi || 1e-9) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function resizedRect(
+  corner: ResizeCorner,
+  startPos: Vec2,
+  startW: number,
+  startH: number,
+  cursor: Vec2,
+): { x: number; y: number; w: number; h: number } {
+  let x = startPos.x;
+  let y = startPos.y;
+  let w = startW;
+  let h = startH;
+  if (corner === 'tl') {
+    x = cursor.x;
+    y = cursor.y;
+    w = startPos.x + startW - cursor.x;
+    h = startPos.y + startH - cursor.y;
+  } else if (corner === 'tr') {
+    y = cursor.y;
+    w = cursor.x - startPos.x;
+    h = startPos.y + startH - cursor.y;
+  } else if (corner === 'bl') {
+    x = cursor.x;
+    w = startPos.x + startW - cursor.x;
+    h = cursor.y - startPos.y;
+  } else {
+    w = cursor.x - startPos.x;
+    h = cursor.y - startPos.y;
+  }
+  // Allow inversion: if user drags past the opposite edge, flip the rect.
+  if (w < 0) {
+    x = x + w;
+    w = -w;
+  }
+  if (h < 0) {
+    y = y + h;
+    h = -h;
+  }
+  return { x, y, w, h };
+}
+
+function updateColliderPosition(
+  s: SceneModel | null,
+  uid: string,
+  position: Vec2,
+): SceneModel | null {
+  if (!s) return s;
+  return {
+    ...s,
+    colliders: s.colliders.map((c) => (c.uid === uid ? { ...c, position } : c)),
+  };
+}
+
+function updateColliderRect(
+  s: SceneModel | null,
+  uid: string,
+  position: Vec2,
+  w: number,
+  h: number,
+): SceneModel | null {
+  if (!s) return s;
+  return {
+    ...s,
+    colliders: s.colliders.map((c) =>
+      c.uid === uid && c.shape.kind === 'rect'
+        ? { ...c, position, shape: { kind: 'rect', w, h } }
+        : c,
+    ),
+  };
+}
+
+function updateColliderCircle(
+  s: SceneModel | null,
+  uid: string,
+  position: Vec2,
+  r: number,
+): SceneModel | null {
+  if (!s) return s;
+  return {
+    ...s,
+    colliders: s.colliders.map((c) =>
+      c.uid === uid && c.shape.kind === 'circle'
+        ? { ...c, position, shape: { kind: 'circle', r } }
+        : c,
+    ),
+  };
+}
+
+function colliderColor(c: SceneCollider, active: boolean): { stroke: string; fill: string } {
+  // buildzone (kindomrush buildZones) → blue, blockers → red
+  const k = c.kind?.toLowerCase() ?? '';
+  let stroke = 'rgba(255, 90, 90, 0.95)'; // blocker default
+  let fill = 'rgba(255, 90, 90, 0.18)';
+  if (k.includes('buildzone') || k.includes('build_zone')) {
+    stroke = 'rgba(120, 180, 255, 0.95)';
+    fill = 'rgba(120, 180, 255, 0.18)';
+  } else if (k.includes('water')) {
+    stroke = 'rgba(120, 200, 255, 0.95)';
+    fill = 'rgba(120, 200, 255, 0.18)';
+  } else if (k === 'edge' || k.includes('boundary')) {
+    stroke = 'rgba(220, 220, 220, 0.85)';
+    fill = 'rgba(220, 220, 220, 0.08)';
+  }
+  if (!active) {
+    // Dim when not in collider mode
+    return {
+      stroke: stroke.replace(/0\.95\)/, '0.55)').replace(/0\.85\)/, '0.45)'),
+      fill: fill.replace(/0\.18\)/, '0.08)').replace(/0\.08\)/, '0.04)'),
+    };
+  }
+  return { stroke, fill };
+}
+
+function drawCollider(
+  ctx: CanvasRenderingContext2D,
+  c: SceneCollider,
+  active: boolean,
+  selected: boolean,
+  scale: number,
+) {
+  const { stroke, fill } = colliderColor(c, active);
+  ctx.lineWidth = (selected ? 2 : 1.25) / scale;
+  ctx.strokeStyle = stroke;
+  ctx.fillStyle = fill;
+
+  if (c.shape.kind === 'rect') {
+    const r = rectFromCollider(c);
+    ctx.beginPath();
+    ctx.rect(r.x, r.y, r.w, r.h);
+    ctx.fill();
+    ctx.stroke();
+    if (selected && c.editable) {
+      drawHandle(ctx, r.x, r.y, scale);
+      drawHandle(ctx, r.x + r.w, r.y, scale);
+      drawHandle(ctx, r.x, r.y + r.h, scale);
+      drawHandle(ctx, r.x + r.w, r.y + r.h, scale);
+    }
+  } else if (c.shape.kind === 'circle') {
+    ctx.beginPath();
+    ctx.arc(c.position.x, c.position.y, c.shape.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    if (selected && c.editable) {
+      drawHandle(ctx, c.position.x + c.shape.r, c.position.y, scale);
+    }
+  } else {
+    // polygon
+    if (c.shape.points.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(c.shape.points[0].x, c.shape.points[0].y);
+    for (let i = 1; i < c.shape.points.length; i++) {
+      ctx.lineTo(c.shape.points[i].x, c.shape.points[i].y);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  if (selected) {
+    // Label name above collider
+    drawLabel(ctx, c.position.x, c.position.y, c.name, scale);
+  }
+}
+
+function drawHandle(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+  const r = HANDLE_RADIUS / scale;
+  ctx.fillStyle = 'rgba(255, 200, 80, 1)';
+  ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+  ctx.lineWidth = 1 / scale;
+  ctx.beginPath();
+  ctx.rect(x - r, y - r, r * 2, r * 2);
+  ctx.fill();
+  ctx.stroke();
+}
+
+function drawLabel(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, scale: number) {
+  const px = 11 / scale;
+  ctx.font = `${px}px ui-monospace, Menlo, monospace`;
+  ctx.textBaseline = 'bottom';
+  const w = ctx.measureText(text).width;
+  const padX = 4 / scale;
+  const padY = 2 / scale;
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(x - w / 2 - padX, y - px - padY * 2, w + padX * 2, px + padY * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fillText(text, x - w / 2, y - padY);
 }
 
 function propBounds(p: SceneProp, bank: ImageBank) {
@@ -676,6 +1257,27 @@ function sceneBounds(s: SceneModel, bank: ImageBank): { x: number; y: number; w:
     const r = propBounds(p, bank);
     if (r) rects.push(r);
   }
+  for (const c of s.colliders) {
+    if (c.shape.kind === 'rect') {
+      rects.push(rectFromCollider(c));
+    } else if (c.shape.kind === 'circle') {
+      rects.push({
+        x: c.position.x - c.shape.r,
+        y: c.position.y - c.shape.r,
+        w: c.shape.r * 2,
+        h: c.shape.r * 2,
+      });
+    } else if (c.shape.points.length > 0) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of c.shape.points) {
+        if (p.x < minX) minX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y > maxY) maxY = p.y;
+      }
+      rects.push({ x: minX, y: minY, w: maxX - minX, h: maxY - minY });
+    }
+  }
   if (rects.length === 0) return { x: 0, y: 0, w: 1024, h: 1024 };
   let minX = Infinity,
     minY = Infinity,
@@ -700,6 +1302,3 @@ function getCssVar(name: string, fallback: string): string {
   return v || fallback;
 }
 
-// Suppress unused warnings on intentionally-future-use imports.
-void HANDLE_RADIUS;
-void cloneScene;
