@@ -82,16 +82,39 @@ export function analyzeProject(rootAbs: string, engine: EngineKind): AnalyzeResu
 
   function scanFile(filePath: string) {
     const ext = path.extname(filePath).toLowerCase();
+    // Launcher scripts (.bat / .cmd / .ps1 / .sh) often reference scenes that
+    // aren't loaded at runtime (dev-only tool scenes like MapEdit.tscn). We
+    // scan them for any engine so res:// links get picked up.
+    const isLauncher =
+      ext === '.bat' || ext === '.cmd' || ext === '.ps1' || ext === '.sh';
+
     if (engine === 'godot') {
-      if (ext !== '.tscn' && ext !== '.tres' && ext !== '.gd' && ext !== '.gdshader') return;
+      if (
+        ext !== '.tscn' &&
+        ext !== '.tres' &&
+        ext !== '.gd' &&
+        ext !== '.gdshader' &&
+        !isLauncher
+      ) {
+        return;
+      }
     } else if (engine === 'unity') {
-      // Unity asset references use GUIDs in YAML — proper resolution requires .meta lookups.
-      // Skip for v1; Unity analyzer is on the roadmap.
-      return;
+      if (!isLauncher) return;
     } else if (engine === 'web') {
-      if (ext !== '.html' && ext !== '.htm' && ext !== '.js' && ext !== '.jsx' && ext !== '.ts' && ext !== '.tsx' && ext !== '.css') return;
+      if (
+        ext !== '.html' &&
+        ext !== '.htm' &&
+        ext !== '.js' &&
+        ext !== '.jsx' &&
+        ext !== '.ts' &&
+        ext !== '.tsx' &&
+        ext !== '.css' &&
+        !isLauncher
+      ) {
+        return;
+      }
     } else {
-      return;
+      if (!isLauncher) return;
     }
 
     let content: string;
@@ -102,15 +125,16 @@ export function analyzeProject(rootAbs: string, engine: EngineKind): AnalyzeResu
     }
     scanned++;
 
-    if (engine === 'godot') {
-      // path="res://assets/foo.png"
+    if (engine === 'godot' || isLauncher) {
+      // path="res://assets/foo.png" — also matches `"res://..."` in .bat files.
       const re1 = /res:\/\/([^"\s)]+)/g;
       let m: RegExpExecArray | null;
       while ((m = re1.exec(content)) !== null) {
         const p = m[1].replace(/\\/g, '/').replace(/\/+$/, '');
         if (p) used.add(p);
       }
-    } else if (engine === 'web') {
+    }
+    if (engine === 'web') {
       // Naive: catch import './foo.png' / from "./foo.svg" / src="./foo.gif"
       const re = /["']\.{0,2}\/?([^"'\s]+\.(?:png|jpg|jpeg|gif|webp|bmp|svg|mp3|wav|ogg|webm|mp4))["']/gi;
       let m: RegExpExecArray | null;
