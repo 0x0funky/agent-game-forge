@@ -147,17 +147,74 @@ function rootNodeName(parsed: ParsedTscn): string | null {
   return null;
 }
 
+/** Node types that count as "real editable content" — used to decide whether
+ *  a scene is just a wrapper around an instanced sub-scene. */
+const CONTENT_NODE_TYPES = new Set([
+  'Sprite2D',
+  'StaticBody2D',
+  'Area2D',
+  'Marker2D',
+  'Path2D',
+  'TileMapLayer',
+]);
+
+/** When a scene has no Sprite2D/etc. of its own and just instances a
+ *  PackedScene, redirect to the inner scene so OGF actually shows / edits
+ *  the embedded content (e.g. Main.tscn → MapEdit.tscn). Recursively follows
+ *  instance chains up to a small depth.
+ *
+ *  Returns the relPath that should actually be loaded. Returns the input
+ *  unchanged when no redirect applies. */
+function resolveActualScenePath(
+  rootAbs: string,
+  relPath: string,
+  depth: number = 0,
+): string {
+  if (depth > 3) return relPath;
+  const abs = safeJoin(rootAbs, relPath);
+  if (!existsSync(abs)) return relPath;
+  const parsed = parseTscn(readFileSync(abs, 'utf8'));
+
+  // If this scene has any editable content of its own, don't redirect.
+  const hasOwnContent = parsed.sections.some(
+    (s) => s.kind === 'node' && CONTENT_NODE_TYPES.has(s.attrs.type ?? ''),
+  );
+  if (hasOwnContent) return relPath;
+
+  // Otherwise look for the first PackedScene instance and follow it.
+  const ext = indexExtResources(parsed);
+  for (const s of parsed.sections) {
+    if (s.kind !== 'node') continue;
+    const inst = s.attrs.instance;
+    if (!inst) continue;
+    const m = /^ExtResource\(\s*"([^"]+)"\s*\)/.exec(inst);
+    if (!m) continue;
+    const ref = ext.get(m[1]);
+    if (!ref || ref.type !== 'PackedScene') continue;
+    const subRel = ref.path.startsWith('res://')
+      ? ref.path.slice('res://'.length)
+      : ref.path.replace(/\\/g, '/');
+    return resolveActualScenePath(rootAbs, subRel, depth + 1);
+  }
+
+  return relPath;
+}
+
 export interface LoadOptions {
   rootAbs: string;
   relPath: string;
 }
 
 export function loadScene(opts: LoadOptions): LoadSceneResponse {
-  const sceneAbs = safeJoin(opts.rootAbs, opts.relPath);
+  // If the requested scene is just a wrapper that instances another scene,
+  // follow the instance and load that one instead.
+  const actualRelPath = resolveActualScenePath(opts.rootAbs, opts.relPath);
+  const sceneAbs = safeJoin(opts.rootAbs, actualRelPath);
   if (!existsSync(sceneAbs)) throw new Error(`scene not found: ${opts.relPath}`);
 
   const text = readFileSync(sceneAbs, 'utf8');
   const parsed = parseTscn(text);
+  const wasRedirected = actualRelPath !== opts.relPath;
   const ext = indexExtResources(parsed);
   const nodes = indexNodes(parsed);
 
@@ -165,6 +222,12 @@ export function loadScene(opts: LoadOptions): LoadSceneResponse {
   const referencedTextures = new Set<string>();
   const notes: string[] = [];
   const seenNodePaths = new Set<string>();
+
+  if (wasRedirected) {
+    notes.push(
+      `Showing content from ${actualRelPath} (instanced via ${opts.relPath}). Edits save to ${actualRelPath}.`,
+    );
+  }
 
   const root = rootNodeName(parsed);
 
@@ -330,14 +393,14 @@ export function loadScene(opts: LoadOptions): LoadSceneResponse {
   let colliders: SceneCollider[] = tscnColliders;
   let collidersJsonPath: string | null = null;
   if (tscnColliders.length === 0) {
-    const jsonRel = findCollisionJsonPath(opts.rootAbs, opts.relPath);
+    const jsonRel = findCollisionJsonPath(opts.rootAbs, actualRelPath);
     if (jsonRel) {
       colliders = readJsonColliders(opts.rootAbs, jsonRel);
       collidersJsonPath = jsonRel;
     }
   } else {
     // If there's also a JSON sidecar, mention it so the user knows.
-    const jsonRel = findCollisionJsonPath(opts.rootAbs, opts.relPath);
+    const jsonRel = findCollisionJsonPath(opts.rootAbs, actualRelPath);
     if (jsonRel) {
       collidersJsonPath = jsonRel;
       notes.push(
@@ -352,13 +415,13 @@ export function loadScene(opts: LoadOptions): LoadSceneResponse {
   let zones: SceneZone[] = tscnZones;
   let zonesJsonPath: string | null = null;
   if (tscnZones.length === 0) {
-    const jsonRel = findZonesJsonPath(opts.rootAbs, opts.relPath);
+    const jsonRel = findZonesJsonPath(opts.rootAbs, actualRelPath);
     if (jsonRel) {
       zones = readJsonZones(opts.rootAbs, jsonRel);
       zonesJsonPath = jsonRel;
     }
   } else {
-    const jsonRel = findZonesJsonPath(opts.rootAbs, opts.relPath);
+    const jsonRel = findZonesJsonPath(opts.rootAbs, actualRelPath);
     if (jsonRel) {
       zonesJsonPath = jsonRel;
       notes.push(
@@ -399,7 +462,10 @@ export interface ApplyOpsResult {
 }
 
 export function applyOps(opts: ApplyOpsOptions): ApplyOpsResult {
-  const sceneAbs = safeJoin(opts.rootAbs, opts.relPath);
+  // If the requested scene is a wrapper that instances another scene, edits
+  // go to the inner scene — same redirect rule as loadScene.
+  const actualRelPath = resolveActualScenePath(opts.rootAbs, opts.relPath);
+  const sceneAbs = safeJoin(opts.rootAbs, actualRelPath);
   const text = readFileSync(sceneAbs, 'utf8');
   const parsed = parseTscn(text);
   const nodes = indexNodes(parsed);
