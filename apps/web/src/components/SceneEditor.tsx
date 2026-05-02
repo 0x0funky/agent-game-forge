@@ -77,6 +77,11 @@ export function SceneEditor(props: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const cameraInitedRef = useRef(false);
+  // Mirror of `scene` so window-level mouse handlers (attached on mousedown)
+  // can read CURRENT state in onMouseUp instead of the stale closure value
+  // captured at the start of the drag. Without this, drag-end never sees the
+  // post-drag position and silently drops every commit.
+  const sceneRef = useRef<SceneModel | null>(null);
 
   // -------- Load scene + decode images --------
 
@@ -116,6 +121,11 @@ export function SceneEditor(props: Props) {
       cancelled = true;
     };
   }, [props.projectPath, props.relPath]);
+
+  // Keep sceneRef in sync with the latest scene state.
+  useEffect(() => {
+    sceneRef.current = scene;
+  }, [scene]);
 
   // -------- Initial camera fit --------
 
@@ -754,10 +764,13 @@ export function SceneEditor(props: Props) {
     dragRef.current = null;
     window.removeEventListener('mousemove', onMouseMove);
     window.removeEventListener('mouseup', onMouseUp);
-    if (!scene || !ds) return;
+    // CRITICAL: read from sceneRef, not the closure `scene`. The closure was
+    // captured at mousedown time and never sees the post-drag updates.
+    const live = sceneRef.current;
+    if (!live || !ds) return;
 
     if (ds.kind === 'prop') {
-      const moved = scene.props.find((p) => p.nodePath === ds.nodePath);
+      const moved = live.props.find((p) => p.nodePath === ds.nodePath);
       if (
         moved &&
         (moved.position.x !== ds.startProp.x || moved.position.y !== ds.startProp.y)
@@ -771,7 +784,7 @@ export function SceneEditor(props: Props) {
       return;
     }
     if (ds.kind === 'prop-scale') {
-      const cur = scene.props.find((p) => p.nodePath === ds.nodePath);
+      const cur = live.props.find((p) => p.nodePath === ds.nodePath);
       if (
         cur &&
         (cur.scale.x !== ds.startScale.x || cur.scale.y !== ds.startScale.y)
@@ -785,7 +798,7 @@ export function SceneEditor(props: Props) {
       return;
     }
     if (ds.kind === 'shape-move') {
-      const list = ds.bucket === 'colliders' ? scene.colliders : scene.zones;
+      const list = ds.bucket === 'colliders' ? live.colliders : live.zones;
       const cur = list.find((c) => c.uid === ds.uid);
       if (
         cur &&
@@ -800,7 +813,7 @@ export function SceneEditor(props: Props) {
       return;
     }
     if (ds.kind === 'shape-resize-rect') {
-      const list = ds.bucket === 'colliders' ? scene.colliders : scene.zones;
+      const list = ds.bucket === 'colliders' ? live.colliders : live.zones;
       const cur = list.find((c) => c.uid === ds.uid);
       if (cur && cur.shape.kind === 'rect') {
         const fwd: SceneOp[] = [];
@@ -835,7 +848,7 @@ export function SceneEditor(props: Props) {
       return;
     }
     if (ds.kind === 'shape-resize-circle') {
-      const list = ds.bucket === 'colliders' ? scene.colliders : scene.zones;
+      const list = ds.bucket === 'colliders' ? live.colliders : live.zones;
       const cur = list.find((c) => c.uid === ds.uid);
       if (cur && cur.shape.kind === 'circle' && cur.shape.r !== ds.startR) {
         commitOps(
@@ -847,7 +860,7 @@ export function SceneEditor(props: Props) {
       return;
     }
     if (ds.kind === 'path-point') {
-      const cur = scene.paths.find((p) => p.uid === ds.uid);
+      const cur = live.paths.find((p) => p.uid === ds.uid);
       if (!cur) return;
       const pt = cur.points[ds.index];
       const local: Vec2 = {
