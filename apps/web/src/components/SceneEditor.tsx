@@ -30,6 +30,9 @@ const MAX_UNDO = 200;
 interface Props {
   projectPath: string;
   relPath: string;
+  /** Bumped by App on Codex run end so the editor refetches the scene from
+   *  disk after the agent edits files. Initial value 0 = no reload yet. */
+  reloadKey?: number;
   onClose?: () => void;
 }
 
@@ -126,6 +129,48 @@ export function SceneEditor(props: Props) {
   useEffect(() => {
     sceneRef.current = scene;
   }, [scene]);
+
+  // -------- Soft refetch on external edit (Codex run end, file watcher, etc) --------
+  // Preserves camera + selection (UX state) but clears undo stack since
+  // external changes invalidate the inverse ops we tracked.
+  const lastReloadKeyRef = useRef<number>(props.reloadKey ?? 0);
+  useEffect(() => {
+    const next = props.reloadKey ?? 0;
+    if (next === lastReloadKeyRef.current) return;
+    lastReloadKeyRef.current = next;
+    if (next === 0) return; // no reload triggered yet
+    // Don't interrupt an active drag — let the user finish first.
+    if (dragRef.current) return;
+
+    let cancelled = false;
+    setSavingState('saving');
+    fetchScene(props.projectPath, props.relPath)
+      .then((r) => {
+        if (cancelled) return;
+        setScene(r.scene);
+        void decodeImages(r).then((b) => {
+          if (cancelled) return;
+          setBank(b);
+        });
+        // External edits invalidate any pending inverse ops we held.
+        undoStackRef.current = [];
+        redoStackRef.current = [];
+        bumpUndoTick();
+        setSavingState('saved');
+        window.setTimeout(() => {
+          setSavingState((s) => (s === 'saved' ? 'idle' : s));
+        }, 900);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setSavingState('error');
+        setSaveError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.reloadKey]);
 
   // -------- Auto-dump .ogf/scene-context.json --------
   // Debounced 500ms — the agent reads this file on demand for spatial info.

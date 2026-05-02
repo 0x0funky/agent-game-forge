@@ -187,6 +187,9 @@ export function App() {
     }
   }, [project?.path, tab, selectedFile?.relPath, selectedFile?.fileKind]);
 
+  // Bumps after a Codex run modifies disk so SceneEditor can refetch.
+  const [sceneReloadKey, setSceneReloadKey] = useState(0);
+
   // Reference images
   const [refs, setRefs] = useState<RefImage[]>([]);
 
@@ -498,6 +501,8 @@ export function App() {
             void refreshTree(project);
             void refreshPending(project);
             setRecentlyChanged(turnChanged);
+            // Trigger SceneEditor refetch — agent likely edited a .tscn / sidecar.
+            setSceneReloadKey((n) => n + 1);
             window.setTimeout(() => setRecentlyChanged(new Set()), 8000);
             fetchConversations(project.path).then((cr) => setConversations(cr.conversations));
           }
@@ -582,6 +587,7 @@ export function App() {
             recentlyChanged={recentlyChanged}
             usedAssets={usedAssets}
             mainScene={mainScene}
+            sceneReloadKey={sceneReloadKey}
             onJumpTo={(rel) => {
               const ext = rel.split('.').pop()?.toLowerCase() ?? '';
               const isCode = ['gd', 'cs', 'js', 'jsx', 'ts', 'tsx', 'py'].includes(ext);
@@ -755,6 +761,7 @@ function EditorPane(props: {
   recentlyChanged: Set<string>;
   usedAssets: Set<string>;
   mainScene: string | null;
+  sceneReloadKey: number;
   onJumpTo: (relPath: string, line: number) => void;
   onAskCodex: (text: string) => void;
   onSlicingSaved?: () => void;
@@ -888,6 +895,7 @@ function EditorPane(props: {
               key={props.selectedFile.relPath}
               projectPath={props.project.path}
               relPath={props.selectedFile.relPath}
+              reloadKey={props.sceneReloadKey}
               onClose={props.onCloseFile}
             />
           ) : (
