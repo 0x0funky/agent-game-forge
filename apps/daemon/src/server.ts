@@ -40,14 +40,18 @@ import { readFileSync } from 'node:fs';
 import { analyzeProject } from './analyze.js';
 import { findUsages } from './usages.js';
 import { findSessionsForCwd, replaySession } from './codex-sessions.js';
+import { applyOps as applySceneOps, loadScene } from './scenes.js';
 import type {
   AgentEvent,
   AgentsResponse,
+  ApplySceneOpsRequest,
+  ApplySceneOpsResponse,
   Conversation,
   ConversationsResponse,
   CreateConversationRequest,
   CreateRunRequest,
   CreateRunResponse,
+  LoadSceneResponse,
   Message,
   MessagesResponse,
   OpenProjectRequest,
@@ -326,6 +330,40 @@ export function createServer() {
     try {
       deleteProjectFile(path.resolve(projectPath), relPath);
       res.json({ ok: true });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // -------------------- Scenes (.tscn) --------------------
+
+  app.get('/api/scenes/load', (req, res) => {
+    const projectPath = req.query.projectPath;
+    const relPath = req.query.relPath;
+    if (typeof projectPath !== 'string' || typeof relPath !== 'string') {
+      return res.status(400).json({ error: 'projectPath and relPath required' });
+    }
+    try {
+      const out = loadScene({ rootAbs: path.resolve(projectPath), relPath });
+      res.json(out satisfies LoadSceneResponse);
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/scenes/save', (req, res) => {
+    const body = req.body as ApplySceneOpsRequest;
+    if (!body?.projectPath || !body?.relPath || !Array.isArray(body.ops)) {
+      return res.status(400).json({ error: 'projectPath, relPath, ops required' });
+    }
+    try {
+      const r = applySceneOps({
+        rootAbs: path.resolve(body.projectPath),
+        relPath: body.relPath,
+        ops: body.ops,
+      });
+      const reply: ApplySceneOpsResponse = { ok: true, size: r.size };
+      res.json(reply);
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }

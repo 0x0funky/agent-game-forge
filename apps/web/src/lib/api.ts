@@ -2,6 +2,8 @@ import type {
   AgentEvent,
   AgentsResponse,
   AnalyzeResponse,
+  ApplySceneOpsRequest,
+  ApplySceneOpsResponse,
   Conversation,
   ConversationsResponse,
   CreateConversationRequest,
@@ -10,6 +12,7 @@ import type {
   EngineKind,
   FileNode,
   FileTreeResponse,
+  LoadSceneResponse,
   Message,
   MessagesResponse,
   OpenProjectRequest,
@@ -138,6 +141,19 @@ export const deleteFile = (projectPath: string, relPath: string) =>
     `/api/files?projectPath=${encodeURIComponent(projectPath)}&relPath=${encodeURIComponent(relPath)}`,
     { method: 'DELETE' },
   );
+
+// Scenes (.tscn)
+export const fetchScene = (projectPath: string, relPath: string) =>
+  jsonFetch<LoadSceneResponse>(
+    `/api/scenes/load?projectPath=${encodeURIComponent(projectPath)}&relPath=${encodeURIComponent(relPath)}`,
+  );
+
+export const applySceneOps = (req: ApplySceneOpsRequest) =>
+  jsonFetch<ApplySceneOpsResponse>('/api/scenes/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
 
 // Reference images
 export const fetchRefs = (projectPath: string) =>

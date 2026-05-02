@@ -32,6 +32,7 @@ import {
 import { Turn, type TurnStatus } from './components/Turn.js';
 import { FileTree } from './components/FileTree.js';
 import { FileEditor } from './components/FileEditor.js';
+import { SceneEditor } from './components/SceneEditor.js';
 import { Header, type Theme } from './components/Header.js';
 import { StatusBar } from './components/StatusBar.js';
 import { Dropzone } from './components/Dropzone.js';
@@ -520,7 +521,8 @@ export function App() {
             onJumpTo={(rel) => {
               const ext = rel.split('.').pop()?.toLowerCase() ?? '';
               const isCode = ['gd', 'cs', 'js', 'jsx', 'ts', 'tsx', 'py'].includes(ext);
-              setTab(isCode ? 'code' : 'assets');
+              const isScene = ext === 'tscn';
+              setTab(isScene ? 'scenes' : isCode ? 'code' : 'assets');
               setSelectedFile({ relPath: rel, fileKind: isImageExt(ext) ? 'image' : 'text' });
             }}
             onAskCodex={(text) => {
@@ -815,7 +817,22 @@ function EditorPane(props: {
             <ProjectWelcome project={props.project} />
           )
         )}
-        {props.tab === 'scenes' && <PlaceholderView title="Scenes" hint="Scene tree + tilemap viewer coming next" />}
+        {props.tab === 'scenes' && (
+          props.selectedFile && props.selectedFile.relPath.toLowerCase().endsWith('.tscn') ? (
+            <SceneEditor
+              key={props.selectedFile.relPath}
+              projectPath={props.project.path}
+              relPath={props.selectedFile.relPath}
+              onClose={props.onCloseFile}
+            />
+          ) : (
+            <ScenePicker
+              tree={props.tree}
+              onPick={(rel) => props.onSelectFile(rel, 'text')}
+              project={props.project}
+            />
+          )
+        )}
         {props.tab === 'code' && (
           props.selectedFile ? (
             <FileEditor
@@ -862,6 +879,59 @@ function ProjectWelcome({ project }: { project: Project }) {
       </div>
     </div>
   );
+}
+
+function ScenePicker({
+  tree,
+  onPick,
+  project,
+}: {
+  tree: FileNode | null;
+  onPick: (relPath: string) => void;
+  project: Project;
+}) {
+  const scenes: FileNode[] = [];
+  if (tree) collectScenes(tree, scenes);
+
+  return (
+    <div className="inspector">
+      <div className="crumbs">
+        <span className="last">{project.name}</span>
+        <span className="badge-dim">scenes</span>
+      </div>
+      <div style={{ overflow: 'auto', padding: 24 }}>
+        {scenes.length === 0 ? (
+          <div className="muted mono" style={{ fontSize: 12 }}>
+            No .tscn files found in this project.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gap: 6, maxWidth: 600 }}>
+            <div className="muted mono" style={{ fontSize: 11, marginBottom: 4 }}>
+              Pick a scene to edit
+            </div>
+            {scenes.map((s) => (
+              <button
+                key={s.relPath}
+                className="scene-pick-row"
+                onClick={() => onPick(s.relPath)}
+              >
+                <span className="mono" style={{ fontSize: 12 }}>{s.name}</span>
+                <span className="muted mono" style={{ fontSize: 11 }}>{s.relPath}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function collectScenes(node: FileNode, out: FileNode[]) {
+  if (node.kind === 'file') {
+    if (node.name.toLowerCase().endsWith('.tscn')) out.push(node);
+    return;
+  }
+  for (const c of node.children ?? []) collectScenes(c, out);
 }
 
 function PlaceholderView({ title, hint }: { title: string; hint: string }) {
