@@ -18,16 +18,14 @@ import { I } from './icons.js';
 type EditMode = 'props' | 'colliders' | 'zones' | 'paths';
 type ResizeCorner = 'tl' | 'tr' | 'bl' | 'br';
 
-/** Unify the colliders + zones interaction code by working over a `Shape` lens. */
-type ShapeLens = {
-  uid: string;
-  ref: ColliderRef;
-  position: Vec2;
-  shape: SceneCollider['shape'];
-  editable: boolean;
-  /** Where to write back. */
-  bucket: 'colliders' | 'zones';
-};
+interface UndoEntry {
+  ops: SceneOp[];
+  inverseOps: SceneOp[];
+  /** Short label shown in tooltips. */
+  label: string;
+}
+
+const MAX_UNDO = 200;
 
 interface Props {
   projectPath: string;
@@ -65,6 +63,13 @@ export function SceneEditor(props: Props) {
   const [selectedZoneUid, setSelectedZoneUid] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<{ uid: string; pointIdx: number | null } | null>(null);
   const [mode, setMode] = useState<EditMode>('props');
+
+  // Undo / redo stacks. Stored in refs to avoid re-renders on every push;
+  // we bump `undoTick` for the buttons + tooltips.
+  const undoStackRef = useRef<UndoEntry[]>([]);
+  const redoStackRef = useRef<UndoEntry[]>([]);
+  const [undoTick, setUndoTick] = useState(0);
+  const bumpUndoTick = useCallback(() => setUndoTick((n) => n + 1), []);
   const [savingState, setSavingState] = useState<'idle' | 'saving' | 'error' | 'saved'>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [camera, setCamera] = useState<Camera>({ scale: 0.5, panX: 0, panY: 0 });
@@ -81,6 +86,12 @@ export function SceneEditor(props: Props) {
     setError(null);
     setScene(null);
     setSelectedNodePath(null);
+    setSelectedColliderUid(null);
+    setSelectedZoneUid(null);
+    setSelectedPath(null);
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    bumpUndoTick();
     cameraInitedRef.current = false;
 
     fetchScene(props.projectPath, props.relPath)
@@ -643,7 +654,11 @@ export function SceneEditor(props: Props) {
         moved &&
         (moved.position.x !== ds.startProp.x || moved.position.y !== ds.startProp.y)
       ) {
-        scheduleSave({ kind: 'move-prop', nodePath: ds.nodePath, position: moved.position });
+        commitOps(
+          [{ kind: 'move-prop', nodePath: ds.nodePath, position: moved.position }],
+          [{ kind: 'move-prop', nodePath: ds.nodePath, position: ds.startProp }],
+          `move ${ds.nodePath.split('/').pop() ?? ds.nodePath}`,
+        );
       }
       return;
     }
@@ -654,7 +669,11 @@ export function SceneEditor(props: Props) {
         cur &&
         (cur.position.x !== ds.startPos.x || cur.position.y !== ds.startPos.y)
       ) {
-        scheduleSave({ kind: 'move-collider', ref: ds.ref, position: cur.position });
+        commitOps(
+          [{ kind: 'move-collider', ref: ds.ref, position: cur.position }],
+          [{ kind: 'move-collider', ref: ds.ref, position: ds.startPos }],
+          `move ${cur.name ?? ds.bucket}`,
+        );
       }
       return;
     }
@@ -662,20 +681,34 @@ export function SceneEditor(props: Props) {
       const list = ds.bucket === 'colliders' ? scene.colliders : scene.zones;
       const cur = list.find((c) => c.uid === ds.uid);
       if (cur && cur.shape.kind === 'rect') {
+        const fwd: SceneOp[] = [];
+        const inv: SceneOp[] = [];
         const sizeChanged = cur.shape.w !== ds.startW || cur.shape.h !== ds.startH;
-        const movedX = cur.position.x !== ds.startPos.x + ds.startW / 2;
-        const movedY = cur.position.y !== ds.startPos.y + ds.startH / 2;
+        const oldCenter: Vec2 = {
+          x: ds.startPos.x + ds.startW / 2,
+          y: ds.startPos.y + ds.startH / 2,
+        };
+        const moved =
+          cur.position.x !== oldCenter.x || cur.position.y !== oldCenter.y;
         if (sizeChanged) {
-          scheduleSave({
+          fwd.push({
             kind: 'resize-rect-collider',
             ref: ds.ref,
             w: cur.shape.w,
             h: cur.shape.h,
           });
+          inv.push({
+            kind: 'resize-rect-collider',
+            ref: ds.ref,
+            w: ds.startW,
+            h: ds.startH,
+          });
         }
-        if (movedX || movedY) {
-          scheduleSave({ kind: 'move-collider', ref: ds.ref, position: cur.position });
+        if (moved) {
+          fwd.push({ kind: 'move-collider', ref: ds.ref, position: cur.position });
+          inv.push({ kind: 'move-collider', ref: ds.ref, position: oldCenter });
         }
+        commitOps(fwd, inv, `resize ${cur.name ?? ds.bucket}`);
       }
       return;
     }
@@ -683,7 +716,11 @@ export function SceneEditor(props: Props) {
       const list = ds.bucket === 'colliders' ? scene.colliders : scene.zones;
       const cur = list.find((c) => c.uid === ds.uid);
       if (cur && cur.shape.kind === 'circle' && cur.shape.r !== ds.startR) {
-        scheduleSave({ kind: 'resize-circle-collider', ref: ds.ref, r: cur.shape.r });
+        commitOps(
+          [{ kind: 'resize-circle-collider', ref: ds.ref, r: cur.shape.r }],
+          [{ kind: 'resize-circle-collider', ref: ds.ref, r: ds.startR }],
+          `resize ${cur.name ?? ds.bucket}`,
+        );
       }
       return;
     }
@@ -691,17 +728,16 @@ export function SceneEditor(props: Props) {
       const cur = scene.paths.find((p) => p.uid === ds.uid);
       if (!cur) return;
       const pt = cur.points[ds.index];
-      const local = {
+      const local: Vec2 = {
         x: ds.startPoint.x - ds.origin.x,
         y: ds.startPoint.y - ds.origin.y,
       };
       if (pt.x !== local.x || pt.y !== local.y) {
-        scheduleSave({
-          kind: 'move-path-point',
-          ref: ds.ref,
-          index: ds.index,
-          position: pt,
-        });
+        commitOps(
+          [{ kind: 'move-path-point', ref: ds.ref, index: ds.index, position: pt }],
+          [{ kind: 'move-path-point', ref: ds.ref, index: ds.index, position: local }],
+          `move ${cur.name ?? 'path'}[${ds.index}]`,
+        );
       }
       return;
     }
@@ -718,6 +754,58 @@ export function SceneEditor(props: Props) {
       void flushSave();
     }, 220);
   }
+
+  /** Forward = ops to send to daemon (also applied locally already by drag).
+   *  Inverse = ops that, applied to current state, would revert the forward. */
+  function commitOps(forward: SceneOp[], inverse: SceneOp[], label: string) {
+    if (forward.length === 0) return;
+    for (const op of forward) scheduleSave(op);
+    undoStackRef.current.push({ ops: forward, inverseOps: inverse, label });
+    if (undoStackRef.current.length > MAX_UNDO) undoStackRef.current.shift();
+    redoStackRef.current = [];
+    bumpUndoTick();
+  }
+
+  function undo() {
+    const entry = undoStackRef.current.pop();
+    if (!entry) return;
+    setScene((s) => applyOpsToScene(s, entry.inverseOps));
+    for (const op of entry.inverseOps) scheduleSave(op);
+    redoStackRef.current.push(entry);
+    bumpUndoTick();
+  }
+
+  function redo() {
+    const entry = redoStackRef.current.pop();
+    if (!entry) return;
+    setScene((s) => applyOpsToScene(s, entry.ops));
+    for (const op of entry.ops) scheduleSave(op);
+    undoStackRef.current.push(entry);
+    bumpUndoTick();
+  }
+
+  // Keyboard shortcuts — Ctrl/Cmd+Z, Ctrl+Shift+Z / Ctrl+Y for redo.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      const target = e.target as HTMLElement | null;
+      // Don't intercept while typing in an input/textarea.
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      if (target?.isContentEditable) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((key === 'z' && e.shiftKey) || key === 'y') {
+        e.preventDefault();
+        redo();
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const pendingOpsRef = useRef<SceneOp[]>([]);
 
@@ -807,6 +895,13 @@ export function SceneEditor(props: Props) {
           </span>
         )}
         <span className="actions">
+          <UndoRedo
+            tick={undoTick}
+            undoStack={undoStackRef.current}
+            redoStack={redoStackRef.current}
+            onUndo={undo}
+            onRedo={redo}
+          />
           <ModeToggle mode={mode} setMode={setMode} />
           <SaveBadge state={savingState} error={saveError} />
           <button
@@ -1246,6 +1341,44 @@ function zoneIcon(kind: ZoneKind): string {
   return '?';
 }
 
+function UndoRedo({
+  tick,
+  undoStack,
+  redoStack,
+  onUndo,
+  onRedo,
+}: {
+  tick: number;
+  undoStack: UndoEntry[];
+  redoStack: UndoEntry[];
+  onUndo: () => void;
+  onRedo: () => void;
+}) {
+  void tick;
+  const undoLabel = undoStack[undoStack.length - 1]?.label;
+  const redoLabel = redoStack[redoStack.length - 1]?.label;
+  return (
+    <span className="scene-undoredo">
+      <button
+        className="btn btn-sm btn-ghost"
+        disabled={undoStack.length === 0}
+        onClick={onUndo}
+        title={undoLabel ? `Undo: ${undoLabel}  (Ctrl+Z)` : 'Nothing to undo'}
+      >
+        ↶
+      </button>
+      <button
+        className="btn btn-sm btn-ghost"
+        disabled={redoStack.length === 0}
+        onClick={onRedo}
+        title={redoLabel ? `Redo: ${redoLabel}  (Ctrl+Shift+Z)` : 'Nothing to redo'}
+      >
+        ↷
+      </button>
+    </span>
+  );
+}
+
 function ModeToggle({ mode, setMode }: { mode: EditMode; setMode: (m: EditMode) => void }) {
   return (
     <span className="scene-mode-toggle" role="tablist">
@@ -1320,6 +1453,112 @@ async function decodeImages(r: LoadSceneResponse): Promise<ImageBank> {
     ),
   );
   return { imgs, sizes };
+}
+
+// ============= Local mirror of daemon ops =============
+// Used by undo/redo to roll the SceneModel forward or backward without a
+// round-trip. Must stay in sync with apps/daemon/src/scenes.ts:applyOps.
+
+function sameRef(a: ColliderRef, b: ColliderRef): boolean {
+  if (a.backend === 'tscn' && b.backend === 'tscn') {
+    return a.nodePath === b.nodePath && a.subResourceId === b.subResourceId;
+  }
+  if (a.backend === 'json' && b.backend === 'json') {
+    return a.relPath === b.relPath && a.section === b.section && a.id === b.id;
+  }
+  return false;
+}
+
+function applyOpsToScene(s: SceneModel | null, ops: SceneOp[]): SceneModel | null {
+  if (!s) return s;
+  let next = s;
+  for (const op of ops) next = applyOpToScene(next, op);
+  return next;
+}
+
+function applyOpToScene(s: SceneModel, op: SceneOp): SceneModel {
+  if (op.kind === 'move-prop') {
+    return {
+      ...s,
+      props: s.props.map((p) =>
+        p.nodePath === op.nodePath ? { ...p, position: op.position } : p,
+      ),
+    };
+  }
+  if (op.kind === 'move-collider') {
+    const ci = s.colliders.findIndex((c) => sameRef(c.ref, op.ref));
+    if (ci >= 0) {
+      return {
+        ...s,
+        colliders: s.colliders.map((c, i) => (i === ci ? { ...c, position: op.position } : c)),
+      };
+    }
+    const zi = s.zones.findIndex((z) => sameRef(z.ref, op.ref));
+    if (zi >= 0) {
+      return {
+        ...s,
+        zones: s.zones.map((z, i) => (i === zi ? { ...z, position: op.position } : z)),
+      };
+    }
+    return s;
+  }
+  if (op.kind === 'resize-rect-collider') {
+    const ci = s.colliders.findIndex((c) => sameRef(c.ref, op.ref));
+    if (ci >= 0) {
+      return {
+        ...s,
+        colliders: s.colliders.map((c, i) =>
+          i === ci && c.shape.kind === 'rect'
+            ? { ...c, shape: { kind: 'rect', w: op.w, h: op.h } }
+            : c,
+        ),
+      };
+    }
+    const zi = s.zones.findIndex((z) => sameRef(z.ref, op.ref));
+    if (zi >= 0) {
+      return {
+        ...s,
+        zones: s.zones.map((z, i) =>
+          i === zi && z.shape.kind === 'rect'
+            ? { ...z, shape: { kind: 'rect', w: op.w, h: op.h } }
+            : z,
+        ),
+      };
+    }
+    return s;
+  }
+  if (op.kind === 'resize-circle-collider') {
+    const ci = s.colliders.findIndex((c) => sameRef(c.ref, op.ref));
+    if (ci >= 0) {
+      return {
+        ...s,
+        colliders: s.colliders.map((c, i) =>
+          i === ci && c.shape.kind === 'circle' ? { ...c, shape: { kind: 'circle', r: op.r } } : c,
+        ),
+      };
+    }
+    const zi = s.zones.findIndex((z) => sameRef(z.ref, op.ref));
+    if (zi >= 0) {
+      return {
+        ...s,
+        zones: s.zones.map((z, i) =>
+          i === zi && z.shape.kind === 'circle' ? { ...z, shape: { kind: 'circle', r: op.r } } : z,
+        ),
+      };
+    }
+    return s;
+  }
+  if (op.kind === 'move-path-point') {
+    return {
+      ...s,
+      paths: s.paths.map((p) =>
+        sameRef(p.ref, op.ref)
+          ? { ...p, points: p.points.map((pt, i) => (i === op.index ? op.position : pt)) }
+          : p,
+      ),
+    };
+  }
+  return s;
 }
 
 // ============= Collider helpers =============
