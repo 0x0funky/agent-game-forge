@@ -33,6 +33,7 @@ import { Turn, type TurnStatus } from './components/Turn.js';
 import { FileTree } from './components/FileTree.js';
 import { FileEditor } from './components/FileEditor.js';
 import { SceneEditor } from './components/SceneEditor.js';
+import { PlayPane } from './components/PlayPane.js';
 import { Header, type Theme } from './components/Header.js';
 import { StatusBar } from './components/StatusBar.js';
 import { Dropzone } from './components/Dropzone.js';
@@ -862,7 +863,21 @@ function EditorPane(props: {
             <PlaceholderView title="Code" hint="Pick a script in the file tree" />
           )
         )}
-        {props.tab === 'play' && <PlaceholderView title="Play" hint="iframe + dev server integration coming next" />}
+        {props.tab === 'play' && (
+          <PlayPane
+            projectPath={props.project.path}
+            mainScene={props.mainScene}
+            onJumpTo={(rel, line) => {
+              const ext = rel.split('.').pop()?.toLowerCase() ?? '';
+              const isCode = ['gd', 'cs', 'js', 'jsx', 'ts', 'tsx', 'py'].includes(ext);
+              props.onJumpTo(rel, line);
+              if (isCode) {
+                // ensure code tab is active (onJumpTo handler does that)
+              }
+              void line;
+            }}
+          />
+        )}
       </div>
     </div>
   );

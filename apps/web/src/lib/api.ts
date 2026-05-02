@@ -12,6 +12,10 @@ import type {
   EngineKind,
   FileNode,
   FileTreeResponse,
+  GodotActiveRunResponse,
+  GodotDetectResponse,
+  GodotStartRequest,
+  GodotStartResponse,
   LoadSceneResponse,
   Message,
   MessagesResponse,
@@ -154,6 +158,54 @@ export const applySceneOps = (req: ApplySceneOpsRequest) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
   });
+
+// Godot runner
+export const detectGodot = () => jsonFetch<GodotDetectResponse>('/api/godot/detect');
+
+export const startGodot = (req: GodotStartRequest) =>
+  jsonFetch<GodotStartResponse>('/api/godot/run', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+
+export async function stopGodot(runId: string): Promise<void> {
+  await fetch(`/api/godot/runs/${runId}/stop`, { method: 'POST' });
+}
+
+export const fetchActiveGodotRun = (projectPath: string) =>
+  jsonFetch<GodotActiveRunResponse>(
+    `/api/godot/active?projectPath=${encodeURIComponent(projectPath)}`,
+  );
+
+export type GodotStreamEvent =
+  | { type: 'start'; data: Record<string, unknown> }
+  | { type: 'stdout'; data: { chunk: string } }
+  | { type: 'stderr'; data: { chunk: string } }
+  | { type: 'error'; data: { message: string } }
+  | { type: 'end'; data: { code: number | null; signal: string | null; status: string } };
+
+export function subscribeGodotRun(
+  runId: string,
+  onEvent: (e: GodotStreamEvent) => void,
+): () => void {
+  const es = new EventSource(`/api/godot/runs/${runId}/events`);
+  const types: GodotStreamEvent['type'][] = ['start', 'stdout', 'stderr', 'error', 'end'];
+  for (const t of types) {
+    es.addEventListener(t, (ev) => {
+      const e = ev as MessageEvent;
+      try {
+        const data = JSON.parse(e.data);
+        onEvent({ type: t, data } as GodotStreamEvent);
+      } catch {
+        // ignore
+      }
+      if (t === 'end') es.close();
+    });
+  }
+  es.onerror = () => es.close();
+  return () => es.close();
+}
 
 // Reference images
 export const fetchRefs = (projectPath: string) =>

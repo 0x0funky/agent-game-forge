@@ -203,3 +203,28 @@ export interface ImportCodexSessionResponse {
   conversation: Conversation;
   importedCount: number;
 }
+
+// -------- Godot runner --------
+
+export interface GodotDetectResponse {
+  available: boolean;
+  path?: string;
+  version?: string;
+  source?: 'env' | 'path';
+}
+
+export interface GodotStartRequest {
+  projectPath: string;
+  /** Optional .tscn (project-relative) — defaults to the project's main_scene. */
+  mainScene?: string;
+  /** Override binary path, otherwise the daemon picks via detect. */
+  godotPath?: string;
+}
+
+export interface GodotStartResponse {
+  runId: string;
+}
+
+export interface GodotActiveRunResponse {
+  runId: string | null;
+}

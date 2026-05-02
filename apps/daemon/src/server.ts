@@ -41,6 +41,7 @@ import { analyzeProject } from './analyze.js';
 import { findUsages } from './usages.js';
 import { findSessionsForCwd, replaySession } from './codex-sessions.js';
 import { applyOps as applySceneOps, loadScene } from './scenes.js';
+import { detectGodot, GodotRunManager } from './godot.js';
 import type {
   AgentEvent,
   AgentsResponse,
@@ -51,6 +52,10 @@ import type {
   CreateConversationRequest,
   CreateRunRequest,
   CreateRunResponse,
+  GodotActiveRunResponse,
+  GodotDetectResponse,
+  GodotStartRequest,
+  GodotStartResponse,
   LoadSceneResponse,
   Message,
   MessagesResponse,
@@ -65,6 +70,7 @@ export function createServer() {
   app.use(express.json({ limit: '5mb' }));
 
   const runs = new RunManager();
+  const godotRuns = new GodotRunManager();
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true });
@@ -333,6 +339,69 @@ export function createServer() {
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  // -------------------- Godot runner --------------------
+
+  app.get('/api/godot/detect', async (_req, res) => {
+    const info = await detectGodot();
+    res.json(info satisfies GodotDetectResponse);
+  });
+
+  app.post('/api/godot/run', async (req, res) => {
+    const body = req.body as GodotStartRequest;
+    if (!body?.projectPath) return res.status(400).json({ error: 'projectPath required' });
+
+    let bin = body.godotPath;
+    if (!bin) {
+      const info = await detectGodot();
+      if (!info.available || !info.path) {
+        return res.status(400).json({
+          error: 'Godot binary not found. Set OGF_GODOT env var or pass godotPath.',
+        });
+      }
+      bin = info.path;
+    }
+
+    if (!existsSync(bin)) {
+      return res.status(400).json({ error: `Godot binary missing: ${bin}` });
+    }
+
+    const projectAbs = path.resolve(body.projectPath);
+    if (!existsSync(path.join(projectAbs, 'project.godot'))) {
+      return res.status(400).json({ error: 'Not a Godot project (project.godot missing)' });
+    }
+
+    const run = godotRuns.start({
+      bin,
+      projectPath: projectAbs,
+      mainScene: body.mainScene,
+    });
+    res.json({ runId: run.id } satisfies GodotStartResponse);
+  });
+
+  app.get('/api/godot/runs/:id/events', (req, res) => {
+    const lastIdHeader = req.header('Last-Event-ID');
+    const afterQuery = req.query.after;
+    let after: number | undefined;
+    if (lastIdHeader) after = Number(lastIdHeader);
+    else if (typeof afterQuery === 'string') after = Number(afterQuery);
+    if (after !== undefined && Number.isNaN(after)) after = undefined;
+    godotRuns.attach(req.params.id, res, after);
+  });
+
+  app.post('/api/godot/runs/:id/stop', (req, res) => {
+    const ok = godotRuns.cancel(req.params.id);
+    res.json({ ok });
+  });
+
+  app.get('/api/godot/active', (req, res) => {
+    const projectPath = req.query.projectPath;
+    if (typeof projectPath !== 'string') {
+      return res.status(400).json({ error: 'projectPath required' });
+    }
+    const runId = godotRuns.activeRunForProject(path.resolve(projectPath));
+    res.json({ runId } satisfies GodotActiveRunResponse);
   });
 
   // -------------------- Scenes (.tscn) --------------------

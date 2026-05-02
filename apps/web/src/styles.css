@@ -1988,6 +1988,91 @@ input, textarea { font: inherit; color: inherit; background: none; border: 0; ou
 }
 .scene-pick-row.unused:hover { opacity: 0.85; }
 
+/* =============== PLAY PANE =============== */
+.play-console {
+  overflow: auto;
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+  background: var(--bg-0);
+  color: var(--ink-1);
+  user-select: text;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.play-line {
+  padding: 1px 0;
+}
+.play-line-error {
+  color: var(--red);
+}
+.play-line-warning {
+  color: oklch(0.78 0.13 80);
+}
+.play-line-system {
+  color: var(--accent);
+  font-style: italic;
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+  padding: 4px 0;
+  margin: 4px 0;
+}
+.play-line-info {
+  color: var(--ink-1);
+}
+.play-jump {
+  background: transparent;
+  color: var(--blue);
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.play-jump:hover { color: var(--accent); }
+
+.play-empty {
+  display: grid;
+  place-items: center;
+  padding: 40px 20px;
+  text-align: center;
+  font-size: 12px;
+}
+.play-empty-card {
+  max-width: 480px;
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
+.play-empty-card h3 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-0);
+}
+.play-empty-card p { margin: 0; line-height: 1.55; font-size: 12.5px; }
+.play-empty-list {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink-1);
+}
+.kbd-inline {
+  font-family: var(--font-mono);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+
+.btn[data-active="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
 .scene-mode-toggle {
   display: inline-flex;
   border: 1px solid var(--line);
