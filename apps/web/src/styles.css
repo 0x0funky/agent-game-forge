@@ -1043,16 +1043,14 @@ input, textarea { font: inherit; color: inherit; background: none; border: 0; ou
   background: transparent;
   border: 0;
   color: var(--ink-2);
-  font-size: 18px;
-  width: 28px;
-  height: 28px;
+  font-size: 16px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
-  flex-shrink: 0;
-  align-self: flex-end;
-  margin-bottom: 4px;
+  align-self: end;
 }
 .attach-btn:hover:not(:disabled) {
   color: var(--accent);
@@ -1093,10 +1091,10 @@ input, textarea { font: inherit; color: inherit; background: none; border: 0; ou
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 8px 8px 8px 10px;
+  padding: 8px 8px 8px 8px;
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
+  grid-template-columns: auto 1fr auto;
+  gap: 6px;
   align-items: end;
   transition: border-color 120ms;
 }
