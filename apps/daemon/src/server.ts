@@ -44,7 +44,11 @@ import { applyOps as applySceneOps, loadScene } from './scenes.js';
 import { detectGodot, GodotRunManager } from './godot.js';
 import { formatSceneContextSnippet, readSceneContext } from './scene-context.js';
 import { bootstrapProject } from './templates/bootstrap.js';
-import { summarizeConventions } from './templates/conventions.js';
+import {
+  godotConventions,
+  summarizeConventions,
+  webConventions,
+} from './templates/conventions.js';
 import { existsSync as fsExistsSync, readFileSync as fsReadFileSync } from 'node:fs';
 import {
   appendMessage as appendCommentMessage,
@@ -906,22 +910,35 @@ function composePrompt(
   const sceneSnippet = formatSceneContextSnippet(ctx);
   const sceneBlock = sceneSnippet ? `\n${sceneSnippet}\n` : '';
 
-  // Per-project conventions — written by `bootstrapProject` and editable.
-  // Read every turn; if missing, fall back to OGF's built-in summary so even
-  // legacy projects without the doc get the contract reminder.
+  // Per-project conventions. Lookup order:
+  //   1. <project>/.ogf/conventions.md  (user-customized version, if present)
+  //   2. OGF's built-in template for the detected engine (full doc)
+  //   3. Engine-agnostic 8-line summary (last-ditch fallback)
+  //
+  // Step 2 matters for IMPORTED projects that were never bootstrapped —
+  // a typical user opens an existing folder and there's no .ogf/conventions.md
+  // on disk. Without this, Codex would see only the tiny generic summary and
+  // miss every engine-specific rule (modular split for web, scene patterns
+  // for godot, anchor conventions, generate2dsprite skill, ...).
   const conventionsPath = path.join(cwd, '.ogf', 'conventions.md');
-  const hasProjectConventions = fsExistsSync(conventionsPath);
   let conventionsBlock = '';
-  if (hasProjectConventions) {
+  if (fsExistsSync(conventionsPath)) {
     try {
       const text = fsReadFileSync(conventionsPath, 'utf8');
       conventionsBlock = `\n# Project conventions (.ogf/conventions.md)\n\n${text}\n`;
     } catch {
-      // ignore — fall through to summary below
+      // unreadable — fall through to template
     }
   }
   if (!conventionsBlock) {
-    conventionsBlock = `\n${summarizeConventions()}\n`;
+    const engine = getProject(cwd)?.engine;
+    if (engine === 'web') {
+      conventionsBlock = `\n# OGF conventions (engine: web — built-in default; no .ogf/conventions.md found)\n\n${webConventions()}\n`;
+    } else if (engine === 'godot') {
+      conventionsBlock = `\n# OGF conventions (engine: godot — built-in default; no .ogf/conventions.md found)\n\n${godotConventions()}\n`;
+    } else {
+      conventionsBlock = `\n${summarizeConventions()}\n`;
+    }
   }
 
   if (isResumed) {
