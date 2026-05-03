@@ -279,18 +279,21 @@ export function findCollisionJsonPath(rootAbs: string, scenePath: string): strin
 
 interface JsonBlocker {
   id: string;
-  type?: 'rect' | 'circle' | 'polygon';
+  type?: 'rect' | 'circle' | 'ellipse' | 'polygon';
   x?: number;
   y?: number;
   w?: number;
   h?: number;
   radius?: number;
+  rx?: number;
+  ry?: number;
   points?: [number, number][];
 }
 
 interface CollisionJson {
   blockers?: JsonBlocker[];
   buildZones?: JsonBlocker[];
+  walkBounds?: JsonBlocker[];
 }
 
 export function readJsonColliders(rootAbs: string, jsonRel: string): SceneCollider[] {
@@ -304,7 +307,16 @@ export function readJsonColliders(rootAbs: string, jsonRel: string): SceneCollid
   }
   const out: SceneCollider[] = [];
 
-  function ingest(items: JsonBlocker[] | undefined, sectionName: 'blockers' | 'buildZones') {
+  function kindFor(sectionName: string): string {
+    if (sectionName === 'buildZones') return 'buildzone';
+    if (sectionName === 'walkBounds') return 'walkbound';
+    return 'blocker';
+  }
+
+  function ingest(
+    items: JsonBlocker[] | undefined,
+    sectionName: 'blockers' | 'buildZones' | 'walkBounds',
+  ) {
     if (!items) return;
     for (const b of items) {
       const ref: ColliderRef = {
@@ -314,12 +326,13 @@ export function readJsonColliders(rootAbs: string, jsonRel: string): SceneCollid
         id: b.id,
       };
       const uid = `json:${sectionName}:${b.id}`;
+      const kind = kindFor(sectionName);
       if (b.type === 'rect') {
         out.push({
           uid,
           ref,
           name: b.id,
-          kind: sectionName === 'buildZones' ? 'buildzone' : 'blocker',
+          kind,
           position: { x: (b.x ?? 0) + (b.w ?? 0) / 2, y: (b.y ?? 0) + (b.h ?? 0) / 2 },
           shape: { kind: 'rect', w: b.w ?? 0, h: b.h ?? 0 },
           editable: true,
@@ -329,9 +342,24 @@ export function readJsonColliders(rootAbs: string, jsonRel: string): SceneCollid
           uid,
           ref,
           name: b.id,
-          kind: sectionName === 'buildZones' ? 'buildzone' : 'blocker',
+          kind,
           position: { x: b.x ?? 0, y: b.y ?? 0 },
           shape: { kind: 'circle', r: b.radius ?? 0 },
+          editable: true,
+        });
+      } else if (b.type === 'ellipse') {
+        // V1: render and edit ellipses as a circle of max(rx, ry). Center
+        // semantics match the JSON ({x, y} = center). Keep this in sync with
+        // web-scene.ts inferShapeFromEntry — both readers must agree on the
+        // shape mapping or applyJsonColliderEditForMove can't translate moves.
+        const r = Math.max(Number(b.rx ?? b.radius ?? 0), Number(b.ry ?? b.radius ?? 0));
+        out.push({
+          uid,
+          ref,
+          name: b.id,
+          kind,
+          position: { x: b.x ?? 0, y: b.y ?? 0 },
+          shape: { kind: 'circle', r },
           editable: true,
         });
       } else if (b.type === 'polygon') {
@@ -343,7 +371,7 @@ export function readJsonColliders(rootAbs: string, jsonRel: string): SceneCollid
           uid,
           ref,
           name: b.id,
-          kind: sectionName === 'buildZones' ? 'buildzone' : 'blocker',
+          kind,
           position: { x: cx, y: cy },
           shape: { kind: 'polygon', points },
           editable: false, // polygon edit = Phase 4
@@ -354,6 +382,7 @@ export function readJsonColliders(rootAbs: string, jsonRel: string): SceneCollid
 
   ingest(parsed.blockers, 'blockers');
   ingest(parsed.buildZones, 'buildZones');
+  ingest(parsed.walkBounds, 'walkBounds');
   return out;
 }
 
