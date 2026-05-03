@@ -112,13 +112,20 @@ function buildTableFromArray(arr: Record<string, unknown>[], path: string[]): Ta
   return { rows: arr, columns, timeKey, arrayPath: path };
 }
 
+interface ArrayCandidate {
+  path: string[];
+  label: string;
+  length: number;
+  data: Record<string, unknown>[];
+}
+
 interface DetectResult {
-  ok: boolean;
-  /** When ok === true. */
-  table?: TableData;
-  /** When ok === false but the JSON has multiple plausible arrays, list them. */
-  candidates?: { path: string[]; label: string; length: number }[];
-  /** When the JSON parsed but isn't table-shaped. */
+  /** Every array-of-objects found at the top level (or root itself). Empty
+   *  if the JSON has no editable arrays. The TableEditor lets the user pick
+   *  which one is active when there's more than one (e.g. enemies.json
+   *  with both `wild` and `marshWild`). */
+  arrays: ArrayCandidate[];
+  /** Set when the JSON parses but isn't table-shaped at all. */
   reason?: string;
 }
 
@@ -127,29 +134,27 @@ function detectTable(content: string): DetectResult {
   try {
     data = JSON.parse(content);
   } catch (err) {
-    return { ok: false, reason: `JSON parse error: ${err instanceof Error ? err.message : String(err)}` };
+    return {
+      arrays: [],
+      reason: `JSON parse error: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
   if (isArrayOfObjects(data)) {
-    return { ok: true, table: buildTableFromArray(data, []) };
+    return {
+      arrays: [{ path: [], label: '(root)', length: data.length, data }],
+    };
   }
   if (isPlainObject(data)) {
-    const candidates: { path: string[]; label: string; length: number }[] = [];
+    const arrays: ArrayCandidate[] = [];
     for (const [k, v] of Object.entries(data)) {
       if (isArrayOfObjects(v)) {
-        candidates.push({ path: [k], label: k, length: v.length });
+        arrays.push({ path: [k], label: k, length: v.length, data: v });
       }
     }
-    if (candidates.length === 1) {
-      const c = candidates[0];
-      const arr = (data as Record<string, unknown>)[c.path[0]] as Record<string, unknown>[];
-      return { ok: true, table: buildTableFromArray(arr, c.path) };
-    }
-    if (candidates.length > 1) {
-      return { ok: false, candidates };
-    }
+    if (arrays.length > 0) return { arrays };
   }
-  return { ok: false, reason: 'No array-of-objects found.' };
+  return { arrays: [], reason: 'No array-of-objects found.' };
 }
 
 function getAtPath<T>(root: unknown, path: string[]): T {
@@ -199,22 +204,19 @@ export function TableEditor(props: Props) {
   const detect = useMemo(() => detectTable(props.content), [props.content]);
   const [view, setView] = useState<'table' | 'timeline'>('table');
   const [selectedRow, setSelectedRow] = useState<number | null>(null);
+  // When the file has multiple arrays (e.g. wild + marshWild), let the user
+  // tab between them. Default to the first; reset whenever the array set
+  // changes (file edit, switching files).
+  const [activeIdx, setActiveIdx] = useState(0);
+  const arraysKey = detect.arrays.map((a) => a.label).join('|');
+  useMemo(() => {
+    if (activeIdx >= detect.arrays.length) setActiveIdx(0);
+    // intentionally not depending on activeIdx — only reset when the array
+    // shape itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arraysKey]);
 
-  if (!detect.ok) {
-    if (detect.candidates && detect.candidates.length > 1) {
-      return (
-        <div className="table-editor-empty">
-          <div>This JSON has multiple arrays. Pick one to edit:</div>
-          <ul>
-            {detect.candidates.map((c) => (
-              <li key={c.label}>
-                {c.label} ({c.length} entries) — open the parent file in text mode for now.
-              </li>
-            ))}
-          </ul>
-        </div>
-      );
-    }
+  if (detect.arrays.length === 0) {
     return (
       <div className="table-editor-empty">
         Not a table-shaped JSON. {detect.reason}
@@ -222,7 +224,8 @@ export function TableEditor(props: Props) {
     );
   }
 
-  const table = detect.table!;
+  const active = detect.arrays[Math.min(activeIdx, detect.arrays.length - 1)];
+  const table = buildTableFromArray(active.data, active.path);
   const { rows, columns, timeKey, arrayPath } = table;
 
   function commit(mutator: (arr: Record<string, unknown>[]) => Record<string, unknown>[]) {
@@ -265,6 +268,26 @@ export function TableEditor(props: Props) {
 
   return (
     <div className="table-editor">
+      {detect.arrays.length > 1 && (
+        <div className="table-editor-tabs" role="tablist">
+          {detect.arrays.map((a, i) => (
+            <button
+              key={a.label}
+              role="tab"
+              aria-selected={i === activeIdx}
+              className={`table-editor-tab ${i === activeIdx ? 'active' : ''}`}
+              onClick={() => {
+                setActiveIdx(i);
+                setSelectedRow(null);
+              }}
+              title={`Edit ${a.label} (${a.length} entries)`}
+            >
+              <span className="mono">{a.label}</span>
+              <span className="muted"> · {a.length}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="table-editor-toolbar">
         <span className="mono">
           {arrayPath.length > 0 ? `.${arrayPath.join('.')}` : '(root array)'}
