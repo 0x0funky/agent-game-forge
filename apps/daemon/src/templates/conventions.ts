@@ -147,6 +147,53 @@ assets/
 | Spawn point | **Marker2D** | Empty Node2D |
 | Single sprite prop | **Sprite2D** as a direct child of a grouping Node2D | Node2D wrapper around a Sprite2D when there's no extra logic |
 
+### Don't build the visible world from code — author it in .tscn
+
+The .tscn IS the world. \`Main.tscn\` MUST contain the visible structure as
+a real node tree: Sprite2D for sprites, StaticBody2D + CollisionShape2D for
+static collision, Area2D for zones, AnimatedSprite2D for animated actors.
+\`Main.gd\` and the rest of the scripts handle BEHAVIOR (input, AI, scoring,
+state transitions, animation triggers) — they do NOT instantiate the world.
+
+| Right | Wrong |
+|---|---|
+| \`Main.tscn\` has ~50 child nodes (player, platforms, enemies, background, UI) authored as real scene structure. Scripts just mutate position/animation/state. | \`Main.tscn\` has only a single Node2D + \`script = ExtResource\`. \`Main.gd\` is 700 lines that \`add_child(Sprite2D.new())\` everything at runtime. |
+
+Why this matters: **OGF can't see runtime-instantiated nodes**. The Scenes
+tab parses the .tscn file; if the file is empty, OGF shows an empty canvas
+even though the running game is full of objects. The user can't drag what
+isn't there. The whole point of the editor breaks.
+
+If a level has many similar entities (e.g. 30 platforms), instance them as
+Sprite2D / StaticBody2D children in the .tscn directly — copy/paste in
+Godot editor or generate via a Codex turn that writes the .tscn text. Use
+data JSON for catalogs (enemy stats, item drops) but NOT for the world's
+spatial layout — that lives in the .tscn.
+
+Acceptable code instantiation: things spawned dynamically by gameplay
+(bullets, particles, picked-up enemies). Anything that exists at level
+start should be in the .tscn.
+
+### Strict typing gotcha — \`:=\` infers Variant from JSON / Dictionary methods
+
+Default Godot 4 projects treat "type inferred from Variant value" as an
+ERROR, not a warning. So this looks innocent but won't load:
+
+\`\`\`gdscript
+var rows := max(int(data.get("rows", 1)), 1)   # ← parse error
+\`\`\`
+
+\`max()\` is Variant-typed when its args go through \`data.get()\` (which
+returns Variant). Use an explicit annotation instead:
+
+\`\`\`gdscript
+var rows: int = max(int(data.get("rows", 1)), 1)   # ← OK
+\`\`\`
+
+Same applies to \`min / abs / round / clamp / lerp\` and any chain that
+touches \`Dictionary.get / Array[i]\` without a typed cast. When in doubt,
+write the type — the few extra characters save a parse-fail launch.
+
 ### Avoid \`@tool\` for gameplay
 
 \`@tool\` scripts run in the editor too. Use them ONLY for editor-time
