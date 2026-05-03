@@ -494,6 +494,12 @@ export interface ApplyOpsResult {
 }
 
 export function applyOps(opts: ApplyOpsOptions): ApplyOpsResult {
+  // Web scene: the relPath is a level JSON. Don't parseTscn — JSON is not a
+  // TSCN file. Dispatch to the JSON-only writer.
+  if (opts.relPath.toLowerCase().endsWith('.json')) {
+    return applyOpsToJsonScene(opts);
+  }
+
   // If the requested scene is a wrapper that instances another scene, edits
   // go to the inner scene — same redirect rule as loadScene.
   const actualRelPath = resolveActualScenePath(opts.rootAbs, opts.relPath);
@@ -612,6 +618,85 @@ export function applyOps(opts: ApplyOpsOptions): ApplyOpsResult {
     return { size: Buffer.byteLength(newText, 'utf8') };
   }
   return { size: Buffer.byteLength(text, 'utf8') };
+}
+
+/** Web-scene apply path. Operates only on JSON files; never touches .tscn.
+ *  All ops MUST carry a json-backend `ref`; otherwise we can't know where to
+ *  write. A missing ref usually means OGF was loaded against an older daemon
+ *  that didn't attach refs — refresh the browser to re-fetch. */
+function applyOpsToJsonScene(opts: ApplyOpsOptions): ApplyOpsResult {
+  function requireJsonRef<T extends { ref?: { backend: string } }>(
+    op: T,
+    kind: string,
+  ): asserts op is T & { ref: import('@ogf/contracts').ColliderRef & { backend: 'json' } } {
+    if (!op.ref || op.ref.backend !== 'json') {
+      throw new Error(
+        `${kind} on a .json scene needs a json-backed ref (got '${op.ref?.backend ?? 'none'}'). ` +
+          `Refresh OGF — the prop/collider was loaded before the JSON-ref upgrade.`,
+      );
+    }
+  }
+
+  for (const op of opts.ops) {
+    if (op.kind === 'move-prop') {
+      requireJsonRef(op, 'move-prop');
+      applyJsonColliderEdit(opts.rootAbs, op.ref, {
+        x: op.position.x,
+        y: op.position.y,
+      });
+    } else if (op.kind === 'scale-prop') {
+      requireJsonRef(op, 'scale-prop');
+      // Web props store size as (w, h), not a unit scale. Translate the unit
+      // scale into a pixel size using the prop's current displaySize. The
+      // model stores displaySize implicitly via the JSON, so we re-read.
+      const map = JSON.parse(
+        readFileSync(safeJoin(opts.rootAbs, op.ref.relPath), 'utf8'),
+      ) as { props?: Array<{ id?: string; w?: number; h?: number }> };
+      const cur = (map.props ?? []).find((p) => p.id === op.ref!.id);
+      if (cur && typeof cur.w === 'number' && typeof cur.h === 'number') {
+        applyJsonColliderEdit(opts.rootAbs, op.ref, {
+          w: cur.w * op.scale.x,
+          h: cur.h * op.scale.y,
+        });
+      }
+    } else if (op.kind === 'move-collider') {
+      if (op.ref.backend !== 'json') {
+        throw new Error(`move-collider on .json scene must use json ref`);
+      }
+      applyJsonColliderEditForMove(opts.rootAbs, op.ref, op.position);
+    } else if (op.kind === 'resize-rect-collider') {
+      if (op.ref.backend !== 'json') {
+        throw new Error(`resize-rect-collider on .json scene must use json ref`);
+      }
+      const ref = op.ref;
+      const colliders = readJsonColliders(opts.rootAbs, ref.relPath);
+      const target = colliders.find(
+        (c) => c.ref.backend === 'json' && c.ref.id === ref.id,
+      );
+      if (target && target.shape.kind === 'rect') {
+        const tlx = target.position.x - op.w / 2;
+        const tly = target.position.y - op.h / 2;
+        applyJsonColliderEdit(opts.rootAbs, ref, {
+          x: tlx,
+          y: tly,
+          w: op.w,
+          h: op.h,
+        });
+      }
+    } else if (op.kind === 'resize-circle-collider') {
+      if (op.ref.backend !== 'json') {
+        throw new Error(`resize-circle-collider on .json scene must use json ref`);
+      }
+      applyJsonColliderEdit(opts.rootAbs, op.ref, { radius: op.r });
+    } else {
+      throw new Error(
+        `op '${(op as { kind: string }).kind}' not supported on .json scenes`,
+      );
+    }
+  }
+
+  const sceneAbs = safeJoin(opts.rootAbs, opts.relPath);
+  return { size: existsSync(sceneAbs) ? statSync(sceneAbs).size : 0 };
 }
 
 /** JSON colliders store rects as top-left + (w,h) but our model uses center.
