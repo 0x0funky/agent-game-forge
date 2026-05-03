@@ -24,7 +24,7 @@ import {
   upsertProject,
   type ProjectRow,
 } from './projects.js';
-import { execSync } from 'node:child_process';
+import { execSync, spawn as spawnProcess } from 'node:child_process';
 import { homedir } from 'node:os';
 import { readdirSync, statSync } from 'node:fs';
 import {
@@ -882,13 +882,40 @@ export function createServer() {
   app.post('/api/runs/:id/cancel', (req, res) => {
     const run = runs.get(req.params.id);
     if (!run) return res.status(404).json({ error: 'run not found' });
-    if (run.child && !run.child.killed) {
-      run.child.kill();
-    }
+    killProcessTree(run.child);
     res.json({ ok: true });
   });
 
   return app;
+}
+
+/** Kill a child process AND every grandchild it spawned.
+ *
+ *  Why this exists: on Windows the codex CLI is `codex.cmd`, so spawn() runs
+ *  cmd.exe → cmd.exe → codex.exe (and codex.exe may spawn its own helpers
+ *  for image_gen / Python tools). child.kill() sends SIGTERM only to the
+ *  immediate child (cmd.exe), leaving codex.exe alive as an orphan that
+ *  keeps burning API tokens and writing files even after the user clicks
+ *  Stop. taskkill /T walks the process tree.
+ *
+ *  POSIX has process groups (negative PID) for the same purpose; we'd need
+ *  to spawn with `detached: true` for that to work, which we don't currently
+ *  do. Linux/macOS users get the basic kill() behavior — fine because they
+ *  don't have the .cmd shim layer that creates the orphan in the first
+ *  place. */
+function killProcessTree(
+  child: import('node:child_process').ChildProcess | undefined,
+): void {
+  if (!child || child.killed || !child.pid) return;
+  if (process.platform === 'win32') {
+    spawnProcess('taskkill', ['/F', '/T', '/PID', String(child.pid)], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    }).unref();
+  } else {
+    child.kill();
+  }
 }
 
 function composePrompt(

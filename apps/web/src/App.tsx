@@ -103,8 +103,11 @@ export function App() {
 
   // Chat
   const [turns, setTurns] = useState<UiTurn[]>([]);
-  const [model, setModel] = useState<string>('default');
-  const [reasoning, setReasoning] = useState<ReasoningEffort>('low');
+  // Defaults chosen for OGF use case: gpt-5.5 + xhigh reasoning. The user
+  // is doing real game refactoring (Sengoku, megaman_new) where rule-following
+  // and multi-file coherence matter more than latency or token cost.
+  const [model, setModel] = useState<string>('gpt-5.5');
+  const [reasoning, setReasoning] = useState<ReasoningEffort>('xhigh');
   const [prompt, setPrompt] = useState('');
   const [runId, setRunId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
