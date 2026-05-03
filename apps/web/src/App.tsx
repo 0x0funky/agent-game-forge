@@ -651,6 +651,7 @@ export function App() {
             recentlyChanged={recentlyChanged}
             usedAssets={usedAssets}
             mainScene={mainScene}
+            sceneFiles={webLevelFiles}
             sceneReloadKey={sceneReloadKey}
             onJumpTo={(rel) => {
               const ext = rel.split('.').pop()?.toLowerCase() ?? '';
@@ -845,6 +846,7 @@ function EditorPane(props: {
   recentlyChanged: Set<string>;
   usedAssets: Set<string>;
   mainScene: string | null;
+  sceneFiles: Set<string>;
   sceneReloadKey: number;
   onJumpTo: (relPath: string, line: number) => void;
   onAskCodex: (text: string) => void;
@@ -940,6 +942,7 @@ function EditorPane(props: {
               recentlyChanged={props.recentlyChanged}
               usedAssets={props.usedAssets}
               mainScene={props.mainScene}
+              sceneFiles={props.sceneFiles}
               filter={treeFilter}
               engine={props.project.engine}
               scopeKey={props.project.path}

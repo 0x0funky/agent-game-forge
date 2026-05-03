@@ -15,6 +15,9 @@ interface Props {
   usedAssets?: Set<string>;
   /** Project's main scene (run/main_scene from project.godot). Marked with a 'main' badge. */
   mainScene?: string | null;
+  /** Web only: file paths that data/levels.json lists. Get a 'scene' badge.
+   *  Godot scenes are inferred from the .tscn extension and don't need this. */
+  sceneFiles?: Set<string>;
   filter?: TreeFilter;
   engine?: EngineKind;
   /** Stable identifier (project path) — used to scope localStorage of folder-open state. */
@@ -170,6 +173,7 @@ export function FileTree(props: Props) {
             recentlyChanged={props.recentlyChanged}
             usedAssets={props.usedAssets}
             mainScene={props.mainScene}
+            sceneFiles={props.sceneFiles}
             filter={filter}
             engine={engine}
             openFolders={openFolders}
@@ -198,6 +202,7 @@ function Node(props: {
   recentlyChanged?: Set<string>;
   usedAssets?: Set<string>;
   mainScene?: string | null;
+  sceneFiles?: Set<string>;
   filter: TreeFilter;
   engine: EngineKind;
   openFolders: Set<string>;
@@ -235,6 +240,7 @@ function Node(props: {
             recentlyChanged={props.recentlyChanged}
             usedAssets={props.usedAssets}
             mainScene={props.mainScene}
+            sceneFiles={props.sceneFiles}
             filter={filter}
             engine={engine}
             openFolders={openFolders}
@@ -254,6 +260,22 @@ function Node(props: {
   const isUsed = props.usedAssets ? props.usedAssets.has(node.relPath) : true;
   const showUnused = isAsset && !!props.usedAssets && !isUsed;
   const isMain = !!props.mainScene && props.mainScene === node.relPath;
+  // 'scene' badge: godot scenes are .tscn; web scenes are whatever
+  // data/levels.json lists. Other JSONs (catalogs, manifests) get nothing —
+  // the absence of the badge tells the user 'this won't open in the canvas'.
+  const isSceneFile =
+    node.kind === 'file' &&
+    ((engine === 'godot' && /\.tscn$/i.test(node.name)) ||
+      (engine === 'web' && (props.sceneFiles?.has(node.relPath) ?? false)));
+  // For data/*.json that are NOT levels in a web project: tag as 'data' so
+  // the user can tell at a glance it's a catalog/manifest, not gameplay-
+  // editable in the Scenes tab.
+  const isDataFile =
+    !isSceneFile &&
+    engine === 'web' &&
+    node.kind === 'file' &&
+    /\.json$/i.test(node.name) &&
+    node.relPath.replace(/\\/g, '/').startsWith('data/');
 
   return (
     <div
@@ -271,6 +293,12 @@ function Node(props: {
       <span className="ficon">{fileIcon(node)}</span>
       <span className="name">{node.name}</span>
       {isMain && <span className="main-badge" title="Main scene">main</span>}
+      {isSceneFile && !isMain && (
+        <span className="scene-badge" title="Scene — opens in the Scenes tab as a draggable canvas">scene</span>
+      )}
+      {isDataFile && (
+        <span className="data-badge" title="Data file (catalog / manifest) — opens as code in Assets tab">data</span>
+      )}
       {showUnused && <span className="unused-badge" title="Not referenced">unused</span>}
       {isUsed && isAsset && props.usedAssets && !isMain && (
         <span className="used-dot" title="Referenced in project" />

@@ -1715,6 +1715,32 @@ input, textarea { font: inherit; color: inherit; background: none; border: 0; ou
   color: var(--accent);
   font-weight: 600;
 }
+.scene-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: oklch(0.7 0.14 235 / 0.16);
+  color: oklch(0.78 0.14 235);
+  border: 1px solid oklch(0.7 0.14 235 / 0.32);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.data-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: oklch(0.7 0.08 70 / 0.12);
+  color: oklch(0.78 0.10 70);
+  border: 1px solid oklch(0.7 0.10 70 / 0.28);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: auto;
+  flex-shrink: 0;
+}
 
 /* Engine radio (new project picker) */
 .engine-radio {
