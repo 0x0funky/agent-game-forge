@@ -197,6 +197,63 @@ export class GodotRunManager {
     this.runs.set(run.id, run);
     this.activeByProject.set(opts.projectPath, run.id);
 
+    // Pre-flight: trigger headless asset import. Codex generates PNG / WAV
+    // files into the project but can't trigger Godot's editor-side import
+    // step, so the project's first run after a Codex turn fails with
+    // 'No loader found for resource'. Running --headless --import generates
+    // the .import sidecars for any new asset before we hand off to Play.
+    // - Idempotent: no-op when nothing's new (~1s).
+    // - Sync via stdin/stdout pipe to keep the user feedback clear ('importing'
+    //   then 'starting').
+    this.emit(run, 'stdout', { chunk: '[OGF] Importing assets (--headless --import)...\n' });
+    let child: ChildProcess;
+    try {
+      const importChild = spawn(
+        opts.bin,
+        ['--path', opts.projectPath, '--headless', '--import'],
+        { cwd: opts.projectPath, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true },
+      );
+      // Stream import output too so the user can see what's happening.
+      importChild.stdout?.on('data', (chunk: Buffer) =>
+        this.emit(run, 'stdout', { chunk: chunk.toString('utf8') }),
+      );
+      importChild.stderr?.on('data', (chunk: Buffer) =>
+        this.emit(run, 'stderr', { chunk: chunk.toString('utf8') }),
+      );
+      // Wait for it to finish before launching the actual game. Use sync
+      // wait via a Promise-friendly close handler — the play spawn happens
+      // inside the close callback below.
+      importChild.on('close', (importCode) => {
+        if (importCode !== 0) {
+          this.emit(run, 'stderr', {
+            chunk: `[OGF] Asset import exited with code ${importCode}; trying to launch anyway.\n`,
+          });
+        }
+        this.launchGame(run, opts, args);
+      });
+      // Track the import process as the run's child so cancel kills it too.
+      run.child = importChild;
+      this.emit(run, 'start', {
+        runId: run.id,
+        bin: opts.bin,
+        args,
+        projectPath: opts.projectPath,
+        mainScene: opts.mainScene,
+      });
+      return run;
+    } catch (err) {
+      this.emit(run, 'error', { message: err instanceof Error ? err.message : String(err) });
+      this.finish(run, 'failed');
+      return run;
+    }
+  }
+
+  /** Launch the actual game after the headless import has completed. */
+  private launchGame(
+    run: GodotRun,
+    opts: { bin: string; projectPath: string; mainScene?: string },
+    args: string[],
+  ): void {
     let child: ChildProcess;
     try {
       child = spawn(opts.bin, args, {
@@ -207,17 +264,11 @@ export class GodotRunManager {
     } catch (err) {
       this.emit(run, 'error', { message: err instanceof Error ? err.message : String(err) });
       this.finish(run, 'failed');
-      return run;
+      return;
     }
 
     run.child = child;
-    this.emit(run, 'start', {
-      runId: run.id,
-      bin: opts.bin,
-      args,
-      projectPath: opts.projectPath,
-      mainScene: opts.mainScene,
-    });
+    this.emit(run, 'stdout', { chunk: '[OGF] Launching Godot...\n' });
 
     child.stdout?.on('data', (chunk: Buffer) => {
       this.emit(run, 'stdout', { chunk: chunk.toString('utf8') });
@@ -239,8 +290,6 @@ export class GodotRunManager {
       this.emit(run, 'end', { code, signal, status });
       this.finish(run, status);
     });
-
-    return run;
   }
 
   get(runId: string): GodotRun | undefined {
