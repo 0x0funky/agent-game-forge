@@ -178,8 +178,12 @@ input, textarea { font: inherit; color: inherit; background: none; border: 0; ou
   align-items: baseline;
   gap: 6px;
   font-family: 'Press Start 2P', system-ui, monospace;
-  font-size: 11px;
-  line-height: 1;
+  /* font-size 14 + line-height 1.4 lets each glyph render at its natural
+   * tall-and-chunky proportions. Was 11/1.0 — that squashed the cells
+   * because Press Start 2P uses ~70% of its em-box vertically; tight
+   * line-height + small font flattened the rendering. */
+  font-size: 14px;
+  line-height: 1.4;
   letter-spacing: 0;
   /* 1px offset on the bottom-right gives the slight 'sitting on a surface'
    * drop-shadow look from the reference, without clashing with the outline. */
@@ -208,7 +212,8 @@ input, textarea { font: inherit; color: inherit; background: none; border: 0; ou
 /* Empty-state hero scale: ~3x the header size, with proportionally bigger
  * outline so it doesn't get swallowed at large font-size. */
 .brand-title-large {
-  font-size: 28px;
+  font-size: 32px;
+  line-height: 1.4;
   gap: 14px;
   filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.6));
 }
