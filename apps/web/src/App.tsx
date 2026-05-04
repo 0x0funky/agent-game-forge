@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   AgentEvent,
   AgentInfo,
@@ -118,13 +118,21 @@ export function App() {
   const [runId, setRunId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [lastRunAt, setLastRunAt] = useState<number | null>(null);
-  // Form ids the user has submitted in this conversation. Locks the form
-  // card so it stays visible in chat history but can't be re-submitted.
-  // Reset by the useEffect below whenever the active conversation changes.
-  const [submittedForms, setSubmittedForms] = useState<Set<string>>(() => new Set());
-  useEffect(() => {
-    setSubmittedForms(new Set());
-  }, [conversationId]);
+  // Form ids the user has submitted in this conversation. Derived from
+  // turns rather than separately stored — onSubmitForm already pushes a
+  // user message that begins with '## Form answers (id=<formId>)', and
+  // messagesToTurns reconstructs that text on refresh from the persisted
+  // message history. Scanning that text reproduces the same set without
+  // a parallel state to keep in sync (which previously got lost on
+  // refresh, leaving every old form in unlocked / countdown mode).
+  const submittedForms = useMemo(() => {
+    const set = new Set<string>();
+    for (const t of turns) {
+      const m = /^## Form answers \(id=([^)]+)\)/m.exec(t.userText);
+      if (m) set.add(m[1].trim());
+    }
+    return set;
+  }, [turns]);
 
   // Files / editor
   const [tab, setTab] = useState<Tab>('assets');
@@ -598,7 +606,9 @@ export function App() {
       }
     }
     const text = lines.join('\n');
-    setSubmittedForms((prev) => new Set([...prev, answers.formId]));
+    // submittedForms is derived from turns via useMemo — once send() pushes
+    // the new turn with the markdown body, the form's lock kicks in
+    // automatically. No parallel state to update.
     void send(text);
   }
 

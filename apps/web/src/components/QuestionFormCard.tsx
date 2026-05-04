@@ -44,9 +44,10 @@ export function QuestionFormCard(props: Props) {
   // Collapsible state for locked (post-submit) cards. Once a form is submitted
   // the card sticks around so the user can see what they answered, but in a
   // long chat that's a lot of vertical real estate — let them collapse it.
-  const [collapsed, setCollapsed] = useState(false);
-  // First time the form transitions from unlocked → locked, collapse it
-  // automatically (the user just submitted, they don't need it expanded).
+  // Default-collapsed when the form is ALREADY locked at mount (e.g. after
+  // a page refresh that rebuilds chat history with already-submitted forms).
+  // Also auto-collapses on the unlocked→locked transition (live submit).
+  const [collapsed, setCollapsed] = useState<boolean>(props.locked === true);
   const lockedRef = useRef(props.locked);
   useEffect(() => {
     if (!lockedRef.current && props.locked) setCollapsed(true);
