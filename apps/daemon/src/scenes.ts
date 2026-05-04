@@ -165,6 +165,61 @@ const CONTENT_NODE_TYPES = new Set([
   'TileMapLayer',
 ]);
 
+/** Node types that own a Transform2D and therefore contribute to a Sprite2D's
+ *  world position when present in its ancestor chain. Anything not in this
+ *  set (e.g. CanvasLayer, Node) doesn't move children spatially. */
+const TRANSFORM2D_NODE_TYPES = new Set([
+  'Node2D',
+  'Sprite2D',
+  'AnimatedSprite2D',
+  'StaticBody2D',
+  'CharacterBody2D',
+  'RigidBody2D',
+  'KinematicBody2D',
+  'Area2D',
+  'Marker2D',
+  'Path2D',
+  'PathFollow2D',
+  'CollisionShape2D',
+  'CollisionPolygon2D',
+  'TileMapLayer',
+  'TileMap',
+  'Camera2D',
+]);
+
+/** Walk up the parent chain from a node, summing position vectors of every
+ *  Transform2D-bearing ancestor. Returns the node's WORLD-SPACE position
+ *  in the .tscn — what Godot would compose at runtime via the scene tree.
+ *
+ *  Stops at root ('.') or a non-Transform2D ancestor (e.g. CanvasLayer).
+ *  Doesn't try to handle rotation / scale composition — pure position only,
+ *  which is what 99% of game scenes need for OGF visualization. */
+function worldPositionOf(
+  parsed: ParsedTscn,
+  nodes: { byPath: Map<string, ParsedTscn['sections'][number]> },
+  nodePath: string,
+): { x: number; y: number } {
+  let cx = 0;
+  let cy = 0;
+  let cur: string | undefined = nodePath;
+  // Cap the walk depth to avoid pathological loops in malformed scenes.
+  for (let i = 0; i < 32 && cur; i++) {
+    const section = nodes.byPath.get(cur);
+    if (!section) break;
+    const t = section.attrs.type ?? '';
+    if (!TRANSFORM2D_NODE_TYPES.has(t)) break;
+    const p = parseVector2(readBodyValue(parsed, section, 'position'));
+    if (p) {
+      cx += p.x;
+      cy += p.y;
+    }
+    const parent = section.attrs.parent;
+    if (!parent || parent === '.' || parent === '') break;
+    cur = parent;
+  }
+  return { x: cx, y: cy };
+}
+
 /** When a scene has no Sprite2D/etc. of its own and just instances a
  *  PackedScene, redirect to the inner scene so OGF actually shows / edits
  *  the embedded content (e.g. Main.tscn → MapEdit.tscn). Recursively follows
@@ -270,12 +325,15 @@ export function loadScene(opts: LoadOptions): LoadSceneResponse {
     return resResolve(r.path);
   }
 
-  // ---- Pattern A: Node2D wrapper with exactly one Sprite2D child ----
-  // (skill_generatemap_test style: tree_north_1 / Sprite2D pair)
-  // If a Node2D has many Sprite2D children, it's a grouping container — let
-  // Pattern B handle each child as its own prop.
+  // ---- Pattern A: any Transform2D-bearing parent with exactly one Sprite2D
+  // child. Covers the canonical Codex-generated structure — StaticBody2D /
+  // CharacterBody2D / Area2D wrapping a Sprite2D + CollisionShape2D — as
+  // well as the historic Node2D + Sprite2D pattern.
+  // If a parent has many Sprite2D children, it's a grouping container —
+  // let Pattern B handle each child individually.
   for (const [nodePath, section] of nodes.byPath) {
-    if (section.attrs.type !== 'Node2D') continue;
+    if (!TRANSFORM2D_NODE_TYPES.has(section.attrs.type ?? '')) continue;
+    if (section.attrs.type === 'Sprite2D') continue; // a Sprite2D itself isn't a wrapper
 
     const children = parsed.sections.filter(
       (s) =>
@@ -288,7 +346,10 @@ export function loadScene(opts: LoadOptions): LoadSceneResponse {
     const texturePath = resolveTexture(spriteSection);
     if (!texturePath) continue;
 
-    const position = parseVector2(readBodyValue(parsed, section, 'position')) ?? { x: 0, y: 0 };
+    // World position = parent's accumulated world transform. Sprite offset =
+    // its local position relative to that parent. SceneEditor combines both
+    // when drawing (position + spriteOffset = sprite center).
+    const position = worldPositionOf(parsed, nodes, nodePath);
     const spriteOffset = parseVector2(readBodyValue(parsed, spriteSection, 'position')) ?? { x: 0, y: 0 };
     const scale = parseVector2(readBodyValue(parsed, spriteSection, 'scale')) ?? { x: 1, y: 1 };
 
@@ -311,7 +372,7 @@ export function loadScene(opts: LoadOptions): LoadSceneResponse {
     if (section.attrs.type !== 'Sprite2D') continue;
     if (seenNodePaths.has(nodePath)) continue;
 
-    // Skip Sprite2Ds that ARE the child of a Pattern-A Node2D (already counted).
+    // Skip Sprite2Ds that ARE the child of a Pattern-A wrapper (already counted).
     // Their parent attr looks like "X/Y" where X/Y is in seenNodePaths.
     const parent = section.attrs.parent;
     if (!parent || parent === '.' || parent === root) continue; // skip root-level / unparented
@@ -320,7 +381,10 @@ export function loadScene(opts: LoadOptions): LoadSceneResponse {
     const texturePath = resolveTexture(section);
     if (!texturePath) continue;
 
-    const position = parseVector2(readBodyValue(parsed, section, 'position')) ?? { x: 0, y: 0 };
+    // World position = walk up parent chain summing transforms, then add
+    // this Sprite2D's local position. Without this, deeply-nested sprites
+    // (under Group / Layer / WrapperBody) get plotted at the origin.
+    const position = worldPositionOf(parsed, nodes, nodePath);
     const scale = parseVector2(readBodyValue(parsed, section, 'scale')) ?? { x: 1, y: 1 };
 
     referencedTextures.add(texturePath);
