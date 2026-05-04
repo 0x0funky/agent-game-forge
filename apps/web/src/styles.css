@@ -2284,12 +2284,12 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
  *   accent treatment so it's discoverable. */
 .agent-collapse-btn {
   margin-left: 4px;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--ink-2);
 }
-.agent-collapse-btn svg {
-  /* The icon is a left-pointing caret in our pack — rotating 180° so
-   * it visually means 'push the panel away to the right'. */
-  transform: rotate(180deg);
-}
+.agent-collapse-btn:hover { color: var(--ink-0); }
 .agent-restore {
   position: absolute;
   top: 50%;

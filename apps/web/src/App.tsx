@@ -1475,7 +1475,7 @@ function AgentPane(props: {
             title="Hide chat panel"
             aria-label="Hide Codex chat panel"
           >
-            {I.caretRight}
+            ›
           </button>
         </span>
       </div>
