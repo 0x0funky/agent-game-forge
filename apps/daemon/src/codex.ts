@@ -1,5 +1,33 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { appendFileSync, statSync, truncateSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import path from 'node:path';
 import type { AgentEvent, ReasoningEffort } from '@ogf/contracts';
+
+/** Where we tee every line Codex writes to stdout, for debugging
+ *  unrecognized events (e.g. image_gen mappings that don't match).
+ *  Truncated when it grows past 5 MB to bound disk usage. */
+const DEBUG_STREAM_LOG = path.join(homedir(), '.codex', 'ogf-stream-debug.jsonl');
+const DEBUG_STREAM_MAX = 5 * 1024 * 1024;
+let debugLogChecked = false;
+
+function debugLogLine(line: string) {
+  try {
+    if (!debugLogChecked) {
+      debugLogChecked = true;
+      mkdirSync(path.dirname(DEBUG_STREAM_LOG), { recursive: true });
+      try {
+        const st = statSync(DEBUG_STREAM_LOG);
+        if (st.size > DEBUG_STREAM_MAX) truncateSync(DEBUG_STREAM_LOG, 0);
+      } catch {
+        /* fresh file */
+      }
+    }
+    appendFileSync(DEBUG_STREAM_LOG, line + '\n', 'utf8');
+  } catch {
+    /* never let logging crash the parser */
+  }
+}
 
 export interface CodexRunOptions {
   bin: string;
@@ -145,17 +173,23 @@ export function mapCodexEvent(raw: CodexJsonEvent): AgentEvent | null {
         input: { changes: raw.item.changes ?? [] },
       };
     }
-    // Image generation (built-in image_gen tool). The Codex CLI emits an
-    // item with prompt + size on start; completed gives us the saved file
-    // path(s). We capture whatever we can — the frontend reads input.prompt
-    // for the head summary, and waits on tool_result for the image path
-    // before rendering the preview.
-    if (itemType === 'image_generation' || itemType === 'image_gen') {
-      const prompt = String(raw.item.prompt ?? '');
+    // Image generation (built-in image_gen tool). Codex CLI's actual
+    // type strings vary across versions:
+    //   image_generation, image_gen, image_generation_call, image_generation_end
+    // We accept any of them so OGF stays compatible with future rebrands.
+    if (
+      itemType === 'image_generation' ||
+      itemType === 'image_gen' ||
+      itemType === 'image_generation_call' ||
+      itemType === 'image_generation_end'
+    ) {
+      const prompt = String(
+        raw.item.prompt ?? (raw.item as { revised_prompt?: string }).revised_prompt ?? '',
+      );
       const size = String(raw.item.size ?? '');
       return {
         type: 'tool_use',
-        id: String(raw.item.id ?? Math.random()),
+        id: String(raw.item.id ?? (raw.item as { call_id?: string }).call_id ?? Math.random()),
         name: 'image_gen',
         input: { prompt, size, raw: raw.item },
       };
@@ -214,7 +248,12 @@ export function mapCodexEvent(raw: CodexJsonEvent): AgentEvent | null {
     // for the saved file(s). Collect every plausible candidate; the
     // frontend probes for any of these and renders the first match. We
     // serialize as JSON so frontend has structured access to all hints.
-    if (itemType === 'image_generation' || itemType === 'image_gen') {
+    if (
+      itemType === 'image_generation' ||
+      itemType === 'image_gen' ||
+      itemType === 'image_generation_call' ||
+      itemType === 'image_generation_end'
+    ) {
       const item = raw.item as {
         image_paths?: string[];
         output_path?: string;
@@ -222,6 +261,9 @@ export function mapCodexEvent(raw: CodexJsonEvent): AgentEvent | null {
         file?: string;
         files?: string[];
         url?: string;
+        result?: string;
+        revised_prompt?: string;
+        call_id?: string;
       };
       const paths: string[] = [];
       if (Array.isArray(item.image_paths)) paths.push(...item.image_paths);
@@ -229,14 +271,18 @@ export function mapCodexEvent(raw: CodexJsonEvent): AgentEvent | null {
       if (typeof item.output_path === 'string') paths.push(item.output_path);
       if (typeof item.path === 'string') paths.push(item.path);
       if (typeof item.file === 'string') paths.push(item.file);
+      const inlineBase64 =
+        typeof item.result === 'string' && item.result.length > 100 ? item.result : undefined;
       const payload = {
         paths,
         url: typeof item.url === 'string' ? item.url : undefined,
+        inlineBase64,
+        prompt: item.revised_prompt,
         raw: raw.item,
       };
       return {
         type: 'tool_result',
-        toolUseId: String(raw.item.id ?? ''),
+        toolUseId: String(raw.item.id ?? item.call_id ?? ''),
         content: JSON.stringify(payload),
         isError: false,
       };
@@ -344,6 +390,7 @@ export function createJsonlParser(cb: JsonlParserCallbacks) {
 
   function consume(line: string) {
     if (!line) return;
+    debugLogLine(line);
     try {
       const obj = JSON.parse(line) as CodexJsonEvent;
       const tid = extractThreadId(obj);
