@@ -198,19 +198,28 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;
 }
-/* Make the pixel logotype shrink with the sidebar — was 14px (header default)
- * which spilled past 240px once the inner padding ate space. 10px keeps the
- * 'Agent Game Forge' three-color art readable down to ~200px sidebars and
- * vanishes overflow at narrower widths via the brand container's clip. */
+/* Sidebar wordmark uses Inter at a normal text size — Press Start 2P at
+ * 10–12px renders smaller than its 1px black outline, smushing glyphs
+ * into the logo and looking broken. Reserve the pixel logotype for the
+ * empty-state hero (.brand-title-large). Keep the per-word color split
+ * as the brand cue: 'Agent Game' in ink-0, 'Forge' in terracotta accent. */
 .side .brand .brand-title {
-  font-size: 10px;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
   gap: 4px;
-  filter: drop-shadow(1px 1px 0 rgba(0,0,0,0.5));
+  filter: none;
   flex-shrink: 1;
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
+.side .brand .brand-title > span { text-shadow: none; }
+.side .brand .brand-agent { color: var(--ink-0); --brand-fill: var(--ink-0); }
+.side .brand .brand-game  { color: var(--ink-0); --brand-fill: var(--ink-0); }
+.side .brand .brand-forge { color: var(--accent); --brand-fill: var(--accent); }
 
 .side-nav {
   padding: 8px;
