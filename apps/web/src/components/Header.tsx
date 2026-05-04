@@ -38,13 +38,18 @@ export function Header(props: Props) {
             className="logo-mark"
             src="/ogf-logo-64.png"
             srcSet="/ogf-logo-32.png 1x, /ogf-logo-64.png 2x, /ogf-logo-128.png 4x"
-            alt="Open Game Forge"
+            alt=""
             width={22}
             height={22}
           />
-          <div className="logo-name">
-            Forge<span>.</span>
-          </div>
+          <img
+            className="logo-title"
+            src="/ogf-title-222.png"
+            srcSet="/ogf-title-111.png 1x, /ogf-title-222.png 2x, /ogf-title-333.png 3x"
+            alt="Agent Game Forge"
+            width={111}
+            height={22}
+          />
         </div>
         <div style={{ width: 1, height: 18, background: 'var(--line)', margin: '0 4px' }} />
         <ProjectSwitcher

@@ -1256,9 +1256,16 @@ function EmptyEditor({ onOpen }: { onOpen: () => void }) {
           className="empty-logo"
           src="/ogf-logo-256.png"
           srcSet="/ogf-logo-128.png 1x, /ogf-logo-256.png 2x, /ogf-logo-512.png 4x"
-          alt="Open Game Forge"
+          alt=""
           width={128}
           height={128}
+        />
+        <img
+          className="empty-title"
+          src="/ogf-title-480.png"
+          alt="Agent Game Forge"
+          width={240}
+          height={47}
         />
         <h2>Open a project to begin</h2>
         <p>Pick a Godot, Unity, or web game folder. Codex will run with that folder as its workspace.</p>

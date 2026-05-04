@@ -162,12 +162,15 @@ input, textarea { font: inherit; color: inherit; background: none; border: 0; ou
   flex-shrink: 0;
   display: block;
 }
-.logo-name {
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  font-size: 13px;
+.logo-title {
+  height: 22px;
+  width: auto;
+  display: block;
+  /* Pixel-art logotype — keep crisp at integer scales rather than smooth bicubic. */
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+  flex-shrink: 0;
 }
-.logo-name span { color: var(--ink-2); font-weight: 400; }
 
 .proj-switch {
   display: flex; align-items: center; gap: 6px;
@@ -1475,9 +1478,17 @@ input, textarea { font: inherit; color: inherit; background: none; border: 0; ou
 .empty-card .empty-logo {
   width: 128px;
   height: 128px;
-  margin: 0 auto 18px;
+  margin: 0 auto 12px;
   display: block;
   /* Pixel-art — keep crisp at integer scales. */
+  image-rendering: pixelated;
+  image-rendering: -moz-crisp-edges;
+}
+.empty-card .empty-title {
+  display: block;
+  margin: 0 auto 18px;
+  width: 240px;
+  height: auto;
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;
 }
