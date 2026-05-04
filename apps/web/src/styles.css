@@ -866,13 +866,13 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
 .diff-banner {
   position: absolute; top: 12px; left: 14px;
   display: flex; align-items: center; gap: 10px;
-  padding: 6px 8px 6px 10px;
-  background: oklch(0.3 0.04 60);
+  padding: 8px 12px;
+  background: var(--accent-soft);
   border: 1px solid var(--accent-line);
-  border-radius: var(--radius);
-  font-size: 11.5px;
+  border-radius: 8px;
+  font-size: 12.5px;
   z-index: 2;
-  box-shadow: var(--shadow-pop);
+  box-shadow: var(--shadow-sm);
 }
 .diff-banner .dot {
   width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
@@ -886,7 +886,7 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
   font-size: 11px; padding: 3px 7px;
   border-radius: 4px; color: var(--ink-1);
 }
-.diff-banner .actions button:hover { background: oklch(0.4 0.04 60); color: var(--ink-0); }
+.diff-banner .actions button:hover { background: var(--bg-3); color: var(--ink-0); }
 .diff-banner .actions .primary { color: var(--accent); }
 
 /* =============== AGENT PANE (v2 — flush, hairline, Claude-like) =============== */
