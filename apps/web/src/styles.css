@@ -172,7 +172,10 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
   /* head (56) | project switcher row (auto) | tree (1fr) | foot (auto) */
   grid-template-rows: 56px auto minmax(0, 1fr) auto;
   min-height: 0;
-  overflow: hidden;
+  /* overflow: visible so the project switcher dropdown can extend past
+   * the sidebar's bottom edge (and shadow can spill outside). Each inner
+   * region (.side-head, .side-files) clips its own overflow. */
+  overflow: visible;
 }
 .side-top {
   padding: 8px 8px 4px;
@@ -1975,14 +1978,15 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
 /* Project / history dropdown */
 .proj-dropdown {
   position: absolute;
-  top: 100%;
+  top: calc(100% + 4px);
+  /* Anchor to BOTH edges of the trigger so the dropdown follows the
+   * sidebar's resizable width — no min-width that overflows out the
+   * right edge into the main column. */
   left: 0;
-  margin-top: 4px;
+  right: 0;
   background: var(--bg-1);
   border: 1px solid var(--line-strong);
   border-radius: var(--radius);
-  min-width: 320px;
-  max-width: 480px;
   max-height: 360px;
   overflow-y: auto;
   z-index: 50;
