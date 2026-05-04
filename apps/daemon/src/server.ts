@@ -952,6 +952,14 @@ Use this exact 8-section structure:
 - Genre / Art style / World setting / Color mood / Premise / Target session length / Completeness tier / Difficulty / Win condition
 - Engine: read from the conventions block above (web or godot — DON'T re-ask the user, the project's engine was fixed at creation)
 - References: list any reference games the user named — they're the strongest single signal for what to build, treat them as soft constraints throughout
+- **Style directive** (REQUIRED — write a 1-2 sentence concrete art-direction line combining art_style + color_mood + world_setting + references). This sentence is the SOURCE OF TRUTH for every visual asset and you MUST paste it VERBATIM into every \`generate2dsprite\` and \`generate2dmap\` call's prompt. Don't paraphrase. Don't drop fields. Examples:
+  - art_style=pixel + color_mood=warm + world=historical-Japan + ref=Mega Man:
+    "Style: 16-bit chunky pixel art, ~48px sprite height, sharp pixel edges, no anti-aliasing, warm sunset palette (deep reds / burnt orange / gold), feudal-Japan motifs (hakama, katana, lanterns), readable Mega Man-style silhouettes."
+  - art_style=painterly + color_mood=dark + world=horror + ref=Hollow Knight:
+    "Style: hand-painted 2D, atmospheric loose brushwork, muted dark palette (deep teals / black / single bone-white accent), gothic horror motifs (broken stone / fungal growth), Hollow Knight-style readable silhouettes against textured backgrounds."
+  - art_style=neon + color_mood=cool + world=scifi + ref=Hyper Light Drifter:
+    "Style: high-contrast neon pixel art, cool palette (electric cyan / magenta / deep navy), retro-futurist sci-fi motifs (chrome / glow lines / glitch artifacts), Hyper Light Drifter-style minimal but punchy silhouettes."
+  Without this directive in your gen calls, the model defaults to generic illustration — the user picked 'pixel' and got 'painterly'. Don't ship that.
 
 ## 2. Player config
 - Sprite layout (NxM at K fps + sprite size)

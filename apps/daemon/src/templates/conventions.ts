@@ -99,6 +99,23 @@ show actual progression. The frame COUNT is your call, but the count must
 mean what it claims (a 4-frame walk row must show 4 distinct walk poses,
 not 1 pose × 4).
 
+### Honor the spec's Style directive in every gen call
+
+\`.ogf/spec.md\` §1 contains a 'Style directive' line — a concrete art
+direction sentence that combines art_style + color_mood + world_setting +
+references. This is the source of truth for visual identity.
+
+**Every \`generate2dsprite\` and \`generate2dmap\` call MUST include the
+Style directive verbatim in its prompt argument.** Don't paraphrase, don't
+drop fields, don't rewrite for "concision". The image-gen model defaults
+to generic-illustration look when given vague prompts — the user picked
+'pixel art' and got 'painterly' more than once because the skill calls
+omitted the style hint. The directive is the fix.
+
+If the spec is missing a Style directive (legacy spec from before this
+rule), construct one from the available spec fields BEFORE calling the
+skill, then write it back into spec.md so future calls stay consistent.
+
 ### Generating ≠ done — you MUST wire it into game data
 
 Both skills produce ASSETS only. The generated \`assets/\*\` files are
