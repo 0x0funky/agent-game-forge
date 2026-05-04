@@ -1390,6 +1390,27 @@ function AgentPane(props: {
         </div>
       )}
       <div className="agent-head">
+        <span
+          className="agent-head-dot"
+          data-state={
+            props.agent?.available
+              ? props.running
+                ? 'work'
+                : 'ok'
+              : props.agent === null
+                ? 'off'
+                : 'error'
+          }
+          title={
+            props.agent?.available
+              ? props.running
+                ? 'Codex working…'
+                : 'Codex ready'
+              : props.agent === null
+                ? 'Detecting Codex…'
+                : 'Codex offline'
+          }
+        />
         <span className="title">Codex</span>
         <span className="sub">· {props.agent?.version?.replace(/^codex-cli\s*/, '') || 'detecting'}</span>
         <span style={{ flex: 1 }} />
