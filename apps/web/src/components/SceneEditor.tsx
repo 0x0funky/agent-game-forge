@@ -1166,10 +1166,36 @@ export function SceneEditor(props: Props) {
     if (saveTimerRef.current !== null) {
       window.clearTimeout(saveTimerRef.current);
     }
+    // Short debounce: just enough to batch a couple of drag-end commits in
+    // the same frame, but tight enough that a 'click drag, immediately
+    // switch tab' sequence still flushes BEFORE the unmount-and-remount
+    // race lets loadScene re-fetch stale .tscn. Was 220ms which lost edits
+    // when users navigated away fast.
     saveTimerRef.current = window.setTimeout(() => {
       void flushSave();
-    }, 220);
+    }, 50);
   }
+
+  // On unmount (tab switch / scene switch), force any pending ops to disk
+  // synchronously. Without this, a debounce timer firing AFTER unmount races
+  // with the next mount's loadScene — daemon serves the still-stale .tscn,
+  // user sees their edit reverted.
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      if (pendingOpsRef.current.length > 0) {
+        // Fire-and-forget — we can't await in a cleanup but the fetch is
+        // already in-flight, and React's next render of this surface will
+        // re-fetch (loadScene) which serializes after the write at the
+        // daemon level.
+        void flushSave();
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** Forward = ops to send to daemon (also applied locally already by drag).
    *  Inverse = ops that, applied to current state, would revert the forward. */
