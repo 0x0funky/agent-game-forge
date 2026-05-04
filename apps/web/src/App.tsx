@@ -66,6 +66,7 @@ const LS_SPLIT = 'ogf:split';
 const LS_DENSITY = 'ogf:density';
 const LS_TREE_W = 'ogf:treeWidth';
 const LS_TREE_COLLAPSED = 'ogf:treeCollapsed';
+const LS_SIDEBAR_W = 'ogf:sidebarWidth';
 const LS_LAST_FILE_PREFIX = 'ogf:lastFile:'; // per-project: { tab, relPath }
 
 type Tab = 'assets' | 'scenes' | 'play';
@@ -261,6 +262,33 @@ export function App() {
   useEffect(() => {
     localStorage.setItem(LS_TREE_COLLAPSED, treeCollapsed ? '1' : '0');
   }, [treeCollapsed]);
+
+  // Sidebar width — user-resizable via drag handle on the right edge of the
+  // .side column. Clamped 180–360; persists to localStorage.
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(LS_SIDEBAR_W));
+    return Number.isFinite(saved) && saved >= 180 && saved <= 360 ? saved : 240;
+  });
+  useEffect(() => {
+    localStorage.setItem(LS_SIDEBAR_W, String(sidebarWidth));
+  }, [sidebarWidth]);
+  function onSidebarDragStart(e: React.MouseEvent) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebarWidth;
+    document.body.style.cursor = 'col-resize';
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.max(180, Math.min(360, startW + (ev.clientX - startX)));
+      setSidebarWidth(next);
+    };
+    const onUp = () => {
+      document.body.style.cursor = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }
 
   const convoRef = useRef<HTMLDivElement>(null);
 
@@ -674,7 +702,10 @@ export function App() {
     : timeAgo(lastRunAt);
 
   return (
-    <div className="app">
+    <div
+      className="app"
+      style={{ gridTemplateColumns: `${sidebarWidth}px 4px 1fr` }}
+    >
       <Sidebar
         agent={agent}
         agentLoading={agentLoading}
@@ -716,6 +747,12 @@ export function App() {
         usedAssets={usedAssets}
         mainScene={mainScene}
         sceneFiles={webLevelFiles}
+      />
+
+      <div
+        className="sidebar-resize"
+        onMouseDown={onSidebarDragStart}
+        title="Drag to resize sidebar"
       />
 
       <div
@@ -1431,40 +1468,6 @@ function AgentPane(props: {
       />
 
       <div className="composer">
-        <div className="chips">
-          <button className="chip" data-active={false}>
-            <span className="lbl">model</span>
-            <select
-              value={props.model}
-              onChange={(e) => props.setModel(e.target.value)}
-              style={{ background: 'transparent', color: 'inherit', border: 0, outline: 0, fontSize: 11, fontFamily: 'inherit' }}
-            >
-              {(props.agent?.models ?? [{ id: 'default', label: 'Default' }]).map((m) => (
-                <option key={m.id} value={m.id} style={{ background: 'var(--bg-1)' }}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </button>
-          <button className="chip" data-active={props.reasoning !== 'low'}>
-            <span className="lbl">reasoning</span>
-            <select
-              value={props.reasoning}
-              onChange={(e) => props.setReasoning(e.target.value as ReasoningEffort)}
-              style={{ background: 'transparent', color: 'inherit', border: 0, outline: 0, fontSize: 11, fontFamily: 'inherit' }}
-            >
-              <option value="minimal" style={{ background: 'var(--bg-1)' }}>minimal · cheapest</option>
-              <option value="low" style={{ background: 'var(--bg-1)' }}>low · fast</option>
-              <option value="medium" style={{ background: 'var(--bg-1)' }}>medium · balanced</option>
-              <option value="high" style={{ background: 'var(--bg-1)' }}>high · deep</option>
-              <option value="xhigh" style={{ background: 'var(--bg-1)' }}>xhigh · max</option>
-            </select>
-          </button>
-          <span style={{ flex: 1 }} />
-          <span className="chip" style={{ color: 'var(--ink-3)' }}>
-            {isResuming ? `${I.spark} resume` : 'new thread'}
-          </span>
-        </div>
         <div className="composer-box">
           <ComposerTextarea
             value={props.prompt}
@@ -1480,15 +1483,43 @@ function AgentPane(props: {
             }
           />
           <div className="composer-actions">
+            <label className="menu-btn" title="Model">
+              <span className="lbl">model</span>
+              <select
+                value={props.model}
+                onChange={(e) => props.setModel(e.target.value)}
+              >
+                {(props.agent?.models ?? [{ id: 'default', label: 'Default' }]).map((m) => (
+                  <option key={m.id} value={m.id} style={{ background: 'var(--bg-1)' }}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+              <span className="caret">{I.caret}</span>
+            </label>
+            <label className="menu-btn" title="Reasoning effort">
+              <span className="lbl">reasoning</span>
+              <select
+                value={props.reasoning}
+                onChange={(e) => props.setReasoning(e.target.value as ReasoningEffort)}
+              >
+                <option value="minimal" style={{ background: 'var(--bg-1)' }}>minimal</option>
+                <option value="low" style={{ background: 'var(--bg-1)' }}>low</option>
+                <option value="medium" style={{ background: 'var(--bg-1)' }}>medium</option>
+                <option value="high" style={{ background: 'var(--bg-1)' }}>high</option>
+                <option value="xhigh" style={{ background: 'var(--bg-1)' }}>xhigh</option>
+              </select>
+              <span className="caret">{I.caret}</span>
+            </label>
             <button
-              className="icon-btn"
+              className="icon-btn composer-attach"
               onClick={() => dropzoneRef.current?.openFilePicker()}
               disabled={!props.project}
               title="Attach files (drag-and-drop also works)"
             >
               📎
             </button>
-            <span style={{ flex: 1 }} />
+            <span className="grow" />
             <button
               className="send-btn"
               data-stop={props.running}
@@ -1503,11 +1534,10 @@ function AgentPane(props: {
         <div className="composer-foot">
           <span><span className="kbd">⏎</span> send</span>
           <span><span className="kbd">⇧⏎</span> newline</span>
-          <span><span className="kbd">esc</span> cancel</span>
           <span style={{ flex: 1 }} />
-          <span>{props.refs.length} ref{props.refs.length === 1 ? '' : 's'}</span>
+          <span>{isResuming ? 'resume' : 'new thread'}</span>
           <span style={{ opacity: 0.5 }}>·</span>
-          <span title={currentTitle}>{currentTitle.length > 20 ? currentTitle.slice(0, 20) + '…' : currentTitle}</span>
+          <span>{props.refs.length} ref{props.refs.length === 1 ? '' : 's'}</span>
         </div>
       </div>
     </aside>
