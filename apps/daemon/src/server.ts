@@ -1178,7 +1178,16 @@ Use this exact 8-section structure:
 
 ## 4. Catalogs
 (arrays of objects ONLY: enemies, items, hazards, pickups. Player config does NOT belong here — it's in §2.)
-- enemies.json: <count> enemies — list ids + 1-line each
+- enemies.json: <count> enemies — for EACH enemy list:
+  - id + 1-line role description
+  - kind: melee | ranged | flying | stationary | boss
+  - **animations** the enemy actually uses (NOT a uniform list — pick by role):
+    - stationary (turret / archer holding ground): \`idle + attack\` (2)
+    - patrol melee: \`idle + walk + attack\` (3)
+    - flying / hovering: \`fly + attack\` (2)
+    - boss: \`idle + walk + attack + hurt\` (4)
+    - default: at least \`idle + attack\` (2)
+  - DON'T add jump / cast / dash / death unless gameplay actually uses them. A ground melee enemy doesn't need jump. A minor mob doesn't need death — just remove the sprite when HP=0.
 - items.json / pickups.json / etc. as needed
 
 ## 5. Progression
@@ -1254,6 +1263,8 @@ These rules came from real specs that produced broken games:
   9a. **Every gen prompt MUST include game-context (genre + view + scale)** in addition to the Style directive. Without it the model picks the wrong perspective for your game (e.g. a side-view platformer hero for a tower defense top-down camera) and the asset looks broken in-engine. Concrete example: 'Genre: tower defense (Kingdom Rush-like). View: 3/4 top-down. World: 1280×720 battlefield, ~48px actor height, ~64px tower footprint. Style: <directive verbatim>. Generate <asset>...'. See conventions for required fields per skill call.
 
   9c. **Level visual schema MUST match camera mode.** If §3 Camera is \`scroll\` / \`follow\` / \`parallax\` (i.e. anything that scrolls), the per-level visual structure MUST be \`layers: [...]\` not \`background: <single>\`. Writing single-bg schema for a scrolling-camera genre (side-scroller, top-down RPG with scrolling, roguelike rooms) is a self-inflicted lock-in: even when you call generate2dmap with \`map_mode: side_scroll_mode\` and the skill produces 4 parallax PNGs, your spec already declared \`background: <one image>\` so you'll throw away the layers. Decide schema BEFORE calling the skill; the schema must match what the skill will output for that genre.
+
+  9d. **Multi-animation entities split into per-animation sheets.** Player already does this (separate generate2dsprite call per idle / walk / jump / attack). Apply the SAME pattern to enemies, bosses, and any NPC with more than one animation: one skill call per named animation, each producing its own 2x2 / 2x3 / 3x3 sheet. Catalog references each sheet via \`animations: { idle: {sprite, fps}, attack: {sprite, fps} }\` open object — NOT a single \`sprite\` field with combined frames. Why: collapsing 8-frame 'combat' (idle+attack merged) forces the slicer into 2x4, which produces 50%+ edge-touch frames in practice (verified on TD-game / test-platformer). The per-animation split also lets runtime call \`enemy.animations.attack\` instead of hardcoding 'frames 4-7 are attack'. Per-role animation set: stationary=\`idle+attack\`, melee patrol=\`idle+walk+attack\`, flying=\`fly+attack\`, boss=\`idle+walk+attack+hurt\`. NEVER add jump/cast/dash/death unless gameplay actually uses them.
 
   9b. **Visual consistency: every gen after the first MUST reference an existing asset.** Image generation is stochastic — same character generated twice independently looks like two different people. Phase 1 MUST establish \`.ogf/style-anchor.png\` (or designate the first character's idle sheet as the de-facto anchor). Every subsequent \`generate2dsprite\` / \`generate2dmap\` call must \`view_image\` the closest reference (same-character sheet > same-family sibling > anchor) BEFORE calling the skill, and pass \`reference: 'generated_image'\` so the skill knows to chain. Pasting a path string into the prompt without view_image does NOT count — bytes have to be in context. Skipping this is the #1 cause of "the same character looks different in idle vs walk" bugs we've shipped. See conventions for the exact prompt phrasing per reference role.
 
@@ -1543,7 +1554,7 @@ The very next turn after the user submits the discovery form, you do TWO things 
 - **Per-level gameplay structure**: <what arrays — props[], platforms[], hazards[], pickups[], enemies[], zones, exits>
 
 ## 4. Catalogs
-- Enemies: <count from completeness; list ids + 1-line each>
+- Enemies: <count from completeness; for EACH enemy list id + 1-line role + kind (melee/ranged/flying/stationary/boss) + animations (pick by role: stationary=idle+attack, patrol melee=idle+walk+attack, flying=fly+attack, boss=idle+walk+attack+hurt). DON'T add jump/cast/dash/death unless gameplay needs it.>
 - Pickups: <ids + effect>
 - Hazards: <ids + damage>
 - Items: <if any>
