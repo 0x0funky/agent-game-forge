@@ -258,6 +258,34 @@ Show me the diff before applying.`;
     props.onAskCodex(prompt);
   }
 
+  function askCodexToRegenerate() {
+    if (!props.onAskCodex) return;
+    const usagesText =
+      usages && usages.length > 0
+        ? '\n\nThis sprite is referenced in:\n' +
+          usages.map((u) => `- ${u.file}:${u.line}  ${u.snippet}`).join('\n')
+        : '';
+    const sliceText = slice
+      ? `\n- Match the existing slicing layout: **${slice.cols}×${slice.rows}** frames @ ${slice.fps} fps, anchor ${slice.anchor}.`
+      : '';
+    const dimsText =
+      naturalW > 0 && naturalH > 0
+        ? `\n- Output dimensions should match: ${naturalW}×${naturalH} px.`
+        : '';
+    const prompt = `Regenerate the sprite asset \`${props.relPath}\` using the \`generate2dsprite\` skill.
+
+Hard constraints:
+- USE the \`generate2dsprite\` skill (NOT raw image_gen — this is a hard rule, see project conventions).
+- INCLUDE the Style directive from \`.ogf/spec.md\` §1 verbatim in the prompt argument.
+- Overwrite the existing file in place at \`${props.relPath}\`.${sliceText}${dimsText}${usagesText}
+
+What should change about this sprite? (edit the line below before sending — leave it blank to just regenerate a fresh take with the same intent)
+>
+
+After regenerating, show me what changed.`;
+    props.onAskCodex(prompt);
+  }
+
   const isImage = kind === 'image' && base64;
   const ext = props.relPath.split('.').pop()?.toLowerCase() ?? '';
   const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : `image/${ext}`;
@@ -307,6 +335,15 @@ Show me the diff before applying.`;
               disabled={!dirty || saving}
             >
               {saving ? 'Saving…' : 'Save'}
+            </button>
+          )}
+          {isImage && props.onAskCodex && (
+            <button
+              className="btn btn-sm"
+              onClick={askCodexToRegenerate}
+              title="Ask Codex to regenerate this sprite via generate2dsprite"
+            >
+              {I.refresh} Regenerate
             </button>
           )}
           {isImage && (
