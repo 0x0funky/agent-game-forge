@@ -20,6 +20,28 @@ export interface SceneBackground {
   source: 'image' | 'tilemap-preview' | 'placeholder';
 }
 
+/** One visual layer in a multi-layer scene. Used by side-scrollers with
+ *  parallax: sky / far / mid / near each get their own SceneLayer. The
+ *  scene editor renders them stacked by zIndex (no real parallax preview
+ *  in v1 — just z-ordered draw). When the level uses a single-image
+ *  background instead, layers is undefined and `background` is set. */
+export interface SceneLayer {
+  /** Stable id (matches the layer's id in level JSON). */
+  id: string;
+  /** Project-relative PNG path. */
+  relPath: string;
+  /** Render order — lower draws first (further back). 0 = sky / far,
+   *  positive = closer. */
+  zIndex: number;
+  /** Parallax scroll factor: 0 = static (sky), 1 = scrolls 1:1 with camera
+   *  (foreground props). Editor uses this for visual hint only — it doesn't
+   *  actually scroll-preview yet. */
+  parallax?: number;
+  /** Inferred natural size if available. */
+  width?: number;
+  height?: number;
+}
+
 export interface SceneProp {
   /** Stable id within this scene. Use the node path "Parent/Name". */
   nodePath: string;
@@ -136,8 +158,14 @@ export interface SceneModel {
   scenePath: string;
   /** Human-readable scene name from the root node. */
   rootName: string;
-  /** Background to render under everything. */
+  /** Background to render under everything. Null when the level uses
+   *  multi-layer parallax instead — see `layers`. Mutually exclusive
+   *  with layers in practice; the loader picks one. */
   background: SceneBackground | null;
+  /** Multi-layer scenery (parallax / depth). When set, render in zIndex
+   *  order back-to-front. When unset, use `background` as the single
+   *  backdrop. Side-scrollers use this; TD / arena use `background`. */
+  layers?: SceneLayer[];
   /** Draggable props. */
   props: SceneProp[];
   /** Collision shapes (StaticBody2D or JSON sidecar). */

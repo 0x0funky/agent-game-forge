@@ -223,6 +223,47 @@ Pick the right skill based on what you're making — **never raw
 When in doubt, ask: "is this thing a single in-game object the
 player interacts with?" Yes → sprite. No → map.
 
+### Side-scrolling level decomposition (READ before generating any side-scroller)
+
+When you call \`generate2dmap\` with \`map_mode: side_scroll_mode\`, the
+skill outputs **scenery parallax layers ONLY** (sky / far / mid / near).
+Platforms, doors, levers, occluders are **NOT** in those layers — they're
+explicitly held back so they can be authored as separate editable objects.
+
+This means a complete side-scrolling level needs MULTIPLE skill calls,
+not one:
+
+| Pass | Skill call | What it produces |
+|------|-----------|------------------|
+| 1 | \`generate2dmap\` map_mode=side_scroll_mode | Parallax scenery layers (sky / far / mid / near). No platforms / props. |
+| 2 | \`generate2dmap\` runtime_object_model=platform_objects | **Prop pack** of all unique platform \`kind\` values (earth_rampart / wood_platform / bamboo / etc) — ONE skill call returns multiple trimmed sprites + metadata JSON for wiring. |
+| 3 | \`generate2dmap\` runtime_object_model=interactive_scene_objects | Interactive props: doors, levers, gates, breakables (when present). |
+| 4 | \`generate2dmap\` runtime_object_model=foreground_occluders | Optional: pillars, fence posts, hanging vines that occlude the player (Hollow Knight depth feel). |
+| 5+ | \`generate2dsprite\` × N | Player + each enemy + each pickup + each FX (per the per-asset rule above). |
+
+Without Pass 2 (\`platform_objects\`), the level JSON's \`platforms[]\`
+will have collision rectangles but NO sprite — the user sees parallax
+scenery + the player floating on invisible ground. Game looks broken.
+
+Use Pass 2 even when there's only one platform kind — get a 1-entry
+prop pack and wire it. Don't skip.
+
+After Pass 2, every \`platforms[]\` entry MUST get its \`image\` field
+pointing into the prop pack:
+\`\`\`json
+{ "id": "ground_01", "x": 0, "y": 616, "w": 760, "h": 64,
+  "kind": "earth_rampart",
+  "image": "assets/maps/<level-id>-platform-pack/earth_rampart/prop.png" }
+\`\`\`
+
+Without the \`image\` field, OGF's editor can't render the platform —
+you'll see a transparent collision outline only, and the user can't
+drag-edit it as a sprite.
+
+Same rule applies to any other gameplay array Pass 3 / 4 produces
+(\`doors[]\`, \`levers[]\`, \`occluders[]\`): each entry needs its
+\`image\` pointing into the corresponding prop pack.
+
 When the user asks "make me a slime", reach for these skills before writing
 custom image_gen prompts — never compose your own image_gen prompt for
 game art (see the hard rules below).

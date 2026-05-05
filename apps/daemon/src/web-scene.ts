@@ -28,6 +28,7 @@ import type {
   SceneBackground,
   SceneCollider,
   SceneImagePayload,
+  SceneLayer,
   SceneModel,
   SceneProp,
   SceneZone,
@@ -130,7 +131,7 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
   const notes: string[] = [];
   let counter = 0;
 
-  // ---- Background ----
+  // ---- Background — single-image (TD / arena / locked-camera) ----
   let background: SceneBackground | null = null;
   const bgPath = typeof data.background === 'string' ? data.background : '';
   if (bgPath) {
@@ -138,8 +139,45 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
     background = { relPath: bgRel, source: 'image' };
     referenced.add(bgRel);
   } else {
+    // Some games store background as { image: "..." } object.
+    const bgObj = (data.background as { image?: unknown } | null) ?? null;
+    const bgImg = typeof bgObj?.image === 'string' ? bgObj.image.replace(/^\.?\//, '') : '';
+    if (bgImg) {
+      background = { relPath: bgImg, source: 'image' };
+      referenced.add(bgImg);
+    }
+  }
+
+  // ---- Layers — multi-image parallax (side-scrollers / scrolling cams) ----
+  // When `layers: [...]` is present, the level uses parallax instead of a
+  // single background. We render them stacked by zIndex (no real parallax
+  // preview yet — just z-ordered). If both background and layers are
+  // present, layers takes priority for visual rendering.
+  let layers: SceneLayer[] | undefined;
+  if (Array.isArray(data.layers)) {
+    const arr = data.layers as Array<Record<string, unknown>>;
+    const out: SceneLayer[] = [];
+    arr.forEach((l, idx) => {
+      const img =
+        typeof l?.image === 'string' ? (l.image as string).replace(/^\.?\//, '') : '';
+      if (!img) return;
+      const id = String(l.id ?? `layer_${idx}`);
+      const zIndex = typeof l.zIndex === 'number' ? l.zIndex : idx;
+      const parallax = typeof l.parallax === 'number' ? (l.parallax as number) : undefined;
+      out.push({ id, relPath: img, zIndex, parallax });
+      referenced.add(img);
+    });
+    if (out.length > 0) {
+      // Sort by zIndex ascending — back-to-front render order
+      out.sort((a, b) => a.zIndex - b.zIndex);
+      layers = out;
+      // If we have layers and no background, suppress the missing-bg warning
+    }
+  }
+
+  if (!background && !layers) {
     notes.push(
-      'No `background` field on the level — add one (e.g. "assets/maps/<id>.png") so OGF can show the map underneath the markers.',
+      'No `background` or `layers[]` field on the level — add one so OGF can show the map underneath the markers.',
     );
   }
 
@@ -196,25 +234,36 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
     if (!Array.isArray(value)) continue;
     const arr = value as RectLike[];
     if (arr.length === 0) continue;
-    // Only treat the array as visual if a clear majority of entries are
-    // drawable (image + position). Avoids false positives on arrays like
-    // checkpoints or doors that may have x/y but not necessarily image.
-    const drawable = arr.filter(
-      (e) =>
-        typeof e?.image === 'string' &&
-        typeof e?.x === 'number' &&
-        typeof e?.y === 'number',
-    );
-    if (drawable.length === 0) continue;
-    if (drawable.length * 2 < arr.length) continue;
 
-    drawable.forEach((p, idx) => {
-      const image = p.image as string;
-      const w = Number(p.w ?? 0);
-      const h = Number(p.h ?? 0);
-      if (w <= 0 || h <= 0) return; // need a renderable size
+    // An entry is editable if it has at minimum a position + size rect.
+    // Image is OPTIONAL — entries without image (e.g. platforms[] with
+    // collision-only kind: 'earth_rampart') still render as outlined
+    // rects so the user can drag and resize them. Otherwise platforms
+    // would be invisible and uneditable.
+    const editable = arr.filter(
+      (e) =>
+        typeof e?.x === 'number' &&
+        typeof e?.y === 'number' &&
+        typeof e?.w === 'number' &&
+        typeof e?.h === 'number' &&
+        Number(e.w) > 0 &&
+        Number(e.h) > 0,
+    );
+    if (editable.length === 0) continue;
+    if (editable.length * 2 < arr.length) continue;
+
+    editable.forEach((p, idx) => {
+      const image = typeof p.image === 'string' ? p.image : null;
+      const w = Number(p.w);
+      const h = Number(p.h);
       const id = String(p.id ?? `${section}_${idx}`);
-      referenced.add(image);
+      if (image) referenced.add(image);
+      // Tag with the kind (when present) so the SceneEditor can show a
+      // label on the outlined rect when there's no sprite.
+      const meta: Record<string, string> = {};
+      if (typeof p.sortY === 'number') meta.sortY = String(p.sortY);
+      if (typeof p.kind === 'string') meta.kind = p.kind as string;
+      if (typeof p.type === 'string') meta.type = p.type as string;
       props.push({
         nodePath: `${section}/${id}`,
         name: id,
@@ -222,7 +271,7 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
         spriteOffset: { x: w / 2, y: h / 2 },
         scale: { x: 1, y: 1 },
         texture: image,
-        metadata: typeof p.sortY === 'number' ? { sortY: String(p.sortY) } : {},
+        metadata: meta,
         displaySize: { x: w, y: h },
         ref: { backend: 'json', relPath, section, id },
       });
@@ -404,6 +453,7 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
     scenePath: relPath,
     rootName: typeof data.id === 'string' ? data.id : path.posix.basename(relPath, '.json'),
     background,
+    layers,
     props,
     colliders,
     collidersJsonPath: relPath,

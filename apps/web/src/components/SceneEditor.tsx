@@ -352,8 +352,21 @@ export function SceneEditor(props: Props) {
     ctx.scale(camera.scale, camera.scale);
     ctx.translate(-camera.panX, -camera.panY);
 
-    // Background
-    if (scene.background) {
+    // Background — multi-layer (parallax) takes priority when present;
+    // otherwise fall back to the legacy single background. v1 doesn't
+    // simulate camera-scroll parallax in the editor — layers draw stacked
+    // by zIndex (back-to-front) at their natural top-left position.
+    if (scene.layers && scene.layers.length > 0) {
+      for (const layer of scene.layers) {
+        const img = bank.imgs.get(layer.relPath);
+        const size =
+          bank.sizes.get(layer.relPath) ??
+          (layer.width && layer.height ? { w: layer.width, h: layer.height } : null);
+        if (img && size) {
+          ctx.drawImage(img, 0, 0, size.w, size.h);
+        }
+      }
+    } else if (scene.background) {
       const img = bank.imgs.get(scene.background.relPath);
       const size =
         bank.sizes.get(scene.background.relPath) ??
