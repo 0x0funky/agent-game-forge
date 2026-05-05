@@ -1190,7 +1190,35 @@ Use this exact 8-section structure:
 ## 7. Phase plan
 - [ ] Phase 1: <real deliverable> — VERIFY: <user-visible action in OGF>
 - [ ] Phase 2: ...
-(3–7 phases, tier-sized)
+(8–15 phases for core tier, 12–20 for polished, 6–8 for minimal — see RULE 8 + RULE 8a below for sizing rules)
+
+**Phase sizing budget**: each phase MUST fit in ONE codex turn. As a
+rule of thumb, each phase should produce at most ~6-8 \`image_gen\`
+results, ~15-20 file edits, and one logical user-visible deliverable.
+If a phase says "generate ALL enemies (5 enemies)" — that's 5 separate
+image_gen calls + skill processing + wiring = blows past the budget.
+Split into 5 phases, one per enemy. Total project asset count is NOT
+capped; only the per-phase fanout is. A polished-tier project with
+5 enemies + 3 towers + 1 hero → roughly 9 separate sprite phases.
+
+Concrete pattern for a side-scrolling platformer (core tier ~12 phases):
+- [ ] Phase 1: Visual anchor — generate \`.ogf/style-anchor.png\` only.
+- [ ] Phase 2: Map background and layers — generate parallax layers via \`generate2dmap\` side_scroll_mode for level 1, wire into \`data/levels/level_1.json\` \`layers[]\`.
+- [ ] Phase 3: Level scene structure — author platforms, hazards, pickups, exit zones in level JSON.
+- [ ] Phase 4: Player sprite — generate ronin via \`generate2dsprite\` (idle + walk + jump + attack as anim rows).
+- [ ] Phase 5: Player controller — wire movement, double-jump, attack hitbox, camera follow.
+- [ ] Phase 6: Enemy 1 (\`ashigaru_spearman\`) — sprite + AI + place in level.
+- [ ] Phase 7: Enemy 2 (\`yumi_archer\`) — sprite + AI + projectile + place.
+- [ ] Phase 8: Enemy 3 (\`rebel_commander\`) — sprite + boss-room scene + boss AI.
+- [ ] Phase 9: Pickups + hazards — generate war_order, spike, fire_pit sprites + place + collection logic.
+- [ ] Phase 10: HP / lives / score UI — \`data/hud.json\` + render.
+- [ ] Phase 11: Win / loss screens — gate trigger + game-over state.
+- [ ] Phase 12: Audio + polish — sfx hooks, particles, screen shake.
+
+Each of those phases is one codex turn. Some may be quick (Phase 1,
+3, 11) — that's fine, short turns are good. Some may run close to
+budget (Phase 2 with 4-5 layer PNGs + processing) — still inside one
+turn.
 
 ## 8. Out of scope (V1)
 - <explicit list of features deliberately deferred>
@@ -1213,6 +1241,13 @@ These rules came from real specs that produced broken games:
    - **core**: 1 character × 4 anims, 3 enemy types × 2 anims each, 1 level + 1 boss room, basic UI (HP bar).
    - **polished**: 2 characters × 5 anims each, 5 enemies, 3 levels, pickup system, scoring, menu screens.
    - **full**: 3+ characters × 6+ anims, 8+ enemies, 5+ levels, save system, polish loops.
+
+8a. **Phase sizing — each phase MUST fit ONE codex turn (≤~6-8 image_gen, ≤~15-20 file edits, one user-visible deliverable).** This is NOT a cap on the project's total asset count — split big work across more phases. Two anti-patterns:
+    - ❌ "Phase X: Generate all 5 enemies" — that's 5 image_gen calls in one turn, plus reference chaining adds ~50K tokens per call → 1M+ tokens just for assets, then skill processing piles on. Agent will self-abort mid-phase ('I can't complete this in one response') and you'll have a half-finished phase with no progress marker flipped.
+    - ❌ "Phase X: Player + 3 enemies + boss + UI + audio + polish" — too many concerns; failure of any one drops the whole phase.
+    Correct: one phase per logical asset family + wiring. A core-tier game with 1 hero + 3 enemies + 1 boss + 5 props is ~10-12 phases. A polished-tier game with 2 heroes + 5 enemies + 1 boss + 8 props is ~14-18 phases. Phase counts are NOT a cost — short phases finish faster and let you ship interrupted projects.
+
+8b. **Mid-phase checkbox flips are MANDATORY**. The moment you finish a phase's deliverable (the user-visible state described in VERIFY), the SAME turn you must edit \`.ogf/spec.md\` to flip that phase's \`- [ ]\` to \`- [x]\`. Don't batch flips at the end of a multi-phase turn — if the run is interrupted (network, token limit, user stop), only flipped phases are recoverable. The spec.md state IS the resume point: 'continue from where you left off' means 'find the next \`- [ ]\` and start there'. An unflipped finished phase looks like unfinished work and the agent will redo it.
 
   9. **Generate sprites with \`generate2dsprite\`, NEVER raw \`image_gen\`.** Each cell of an animation row MUST be a distinct pose progression — submitting a 4×4 sheet where every cell is the same pose ships a frozen-corpse character. Frame COUNT per anim is your judgement (genre / completeness / target style decide), but the count must mean what it claims: a 4-frame walk row shows 4 distinct walk poses, not 1 pose × 4. Spec §2 should list animation NAMES; per-anim frame counts can be authored at sheet-generation time.
 
@@ -1525,7 +1560,15 @@ The very next turn after the user submits the discovery form, you do TWO things 
 - [ ] Phase 1: <name> — <concrete deliverable + how to verify>
 - [ ] Phase 2: <name> — <deliverable + verify>
 - [ ] Phase 3: <name> — <deliverable + verify>
-(...3-7 phases total. Sum should equal the completeness tier's scope.)
+(8-15 phases for core tier, 12-20 for polished, 6-8 for minimal. **Each
+phase must fit ONE codex turn**: at most ~6-8 image_gen calls, ~15-20
+file edits, one logical user-visible deliverable. Split per-asset:
+"Phase X: Player sprite + controller", "Phase X+1: Enemy 1 sprite + AI",
+"Phase X+2: Enemy 2 sprite + AI" — NOT "Phase X: All enemies". Total
+asset count is NOT capped; phase count is the natural way to fit big
+projects under per-turn token budget. Flip each phase's checkbox the
+moment its deliverable is on disk — interruptions are recoverable only
+for flipped phases.)
 
 ## 8. Out of scope (V1)
 - <thing 1 NOT in this version>
