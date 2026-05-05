@@ -2369,6 +2369,72 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
 /* err pre in tool-body */
 .tool-body pre.err { color: var(--red); }
 
+/* Regenerate-staging panel — shows in FileEditor when .ogf/regen/<path>
+ * exists (i.e. Codex finished a regenerate but the user hasn't applied
+ * it yet). Side-by-side preview of original vs new with two buttons:
+ * 'Use new' (apply swap) or 'Keep original' (discard staged). */
+.regen-banner {
+  border: 1px solid var(--accent-line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-1);
+  margin: 12px 16px 0;
+  overflow: hidden;
+}
+.regen-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--ink-0);
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--accent-line);
+}
+.regen-banner-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+}
+.regen-banner-spacer { flex: 1; }
+.regen-compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 14px;
+  background: var(--bg-1);
+}
+.regen-side {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.regen-side figcaption {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+}
+.regen-side-new figcaption {
+  color: var(--accent);
+}
+.regen-side img {
+  max-width: 100%;
+  max-height: 320px;
+  background:
+    linear-gradient(45deg, var(--check-1) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--check-1) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--check-1) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--check-1) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
 /* Form-submit user message — shown in place of the raw '## Form answers'
  * markdown wall when a user submits a question-form. Compact pill
  * aligned to the right (where user messages live), expandable to show

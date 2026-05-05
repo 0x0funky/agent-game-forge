@@ -50,7 +50,12 @@ import {
   summarizeConventions,
   webConventions,
 } from './templates/conventions.js';
-import { existsSync as fsExistsSync, readFileSync as fsReadFileSync } from 'node:fs';
+import {
+  existsSync as fsExistsSync,
+  readFileSync as fsReadFileSync,
+  copyFileSync as fsCopyFileSync,
+  unlinkSync as fsUnlinkSync,
+} from 'node:fs';
 import {
   appendMessage as appendCommentMessage,
   createThread as createCommentThread,
@@ -391,6 +396,78 @@ export function createServer() {
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
     }
+  });
+
+  // -------- Sprite regenerate staging --------
+  // The 'Regenerate' button in FileEditor instructs Codex to write the
+  // new sprite to .ogf/regen/<relPath> instead of overwriting. These
+  // endpoints let the UI swap-or-discard the staged file once the user
+  // has reviewed the side-by-side comparison.
+
+  app.get('/api/files/regen/exists', (req, res) => {
+    const { projectPath, relPath } = req.query;
+    if (typeof projectPath !== 'string' || typeof relPath !== 'string') {
+      return res.status(400).json({ error: 'projectPath and relPath required' });
+    }
+    const root = path.resolve(projectPath);
+    const regenAbs = path.join(root, '.ogf', 'regen', relPath);
+    if (!regenAbs.startsWith(root)) {
+      return res.status(400).json({ error: 'invalid relPath' });
+    }
+    const exists = fsExistsSync(regenAbs);
+    if (!exists) return res.json({ exists: false });
+    try {
+      const buf = fsReadFileSync(regenAbs);
+      res.json({
+        exists: true,
+        size: buf.length,
+        base64: buf.toString('base64'),
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/files/regen/apply', (req, res) => {
+    const body = req.body as { projectPath?: string; relPath?: string };
+    if (!body?.projectPath || !body?.relPath) {
+      return res.status(400).json({ error: 'projectPath and relPath required' });
+    }
+    const root = path.resolve(body.projectPath);
+    const target = path.join(root, body.relPath);
+    const regen = path.join(root, '.ogf', 'regen', body.relPath);
+    if (!target.startsWith(root) || !regen.startsWith(root)) {
+      return res.status(400).json({ error: 'invalid relPath' });
+    }
+    if (!fsExistsSync(regen)) {
+      return res.status(404).json({ error: 'no pending regen at that path' });
+    }
+    try {
+      // Swap: write regen bytes to target, remove staging file.
+      // copyFile preserves a working state if anything goes wrong (target
+      // is replaced atomically on most platforms; staging deletion is
+      // separate so a partial failure leaves the user with the new bytes
+      // applied + the staging copy still around — recoverable).
+      fsCopyFileSync(regen, target);
+      fsUnlinkSync(regen);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/files/regen/discard', (req, res) => {
+    const body = req.body as { projectPath?: string; relPath?: string };
+    if (!body?.projectPath || !body?.relPath) {
+      return res.status(400).json({ error: 'projectPath and relPath required' });
+    }
+    const root = path.resolve(body.projectPath);
+    const regen = path.join(root, '.ogf', 'regen', body.relPath);
+    if (!regen.startsWith(root)) {
+      return res.status(400).json({ error: 'invalid relPath' });
+    }
+    if (fsExistsSync(regen)) fsUnlinkSync(regen);
+    res.json({ ok: true });
   });
 
   // -------- Reference images --------

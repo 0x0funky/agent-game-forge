@@ -163,6 +163,25 @@ export const deleteFile = (projectPath: string, relPath: string) =>
     { method: 'DELETE' },
   );
 
+// Sprite regenerate staging — Codex writes to .ogf/regen/<relPath>; the
+// user reviews + applies or discards via these endpoints.
+export const fetchRegenStaging = (projectPath: string, relPath: string) =>
+  jsonFetch<{ exists: boolean; size?: number; base64?: string }>(
+    `/api/files/regen/exists?projectPath=${encodeURIComponent(projectPath)}&relPath=${encodeURIComponent(relPath)}`,
+  );
+export const applyRegen = (projectPath: string, relPath: string) =>
+  jsonFetch<{ ok: true }>('/api/files/regen/apply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectPath, relPath }),
+  });
+export const discardRegen = (projectPath: string, relPath: string) =>
+  jsonFetch<{ ok: true }>('/api/files/regen/discard', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectPath, relPath }),
+  });
+
 // Scenes (.tscn)
 export const fetchScene = (projectPath: string, relPath: string) =>
   jsonFetch<LoadSceneResponse>(

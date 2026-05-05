@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import type { UsagesResponse } from '@ogf/contracts';
-import { fetchFileContent, fetchUsages, writeFileContent } from '../lib/api.js';
+import {
+  applyRegen,
+  discardRegen,
+  fetchFileContent,
+  fetchRegenStaging,
+  fetchUsages,
+  writeFileContent,
+} from '../lib/api.js';
 import { I } from './icons.js';
 import { SpriteSlicerModal, type SliceMetadata } from './SpriteSlicerModal.js';
 import { TableEditor } from './TableEditor.js';
@@ -62,6 +69,12 @@ export function FileEditor(props: Props) {
   const [usagesLoading, setUsagesLoading] = useState(false);
   const [jsonView, setJsonView] = useState<'auto' | 'text' | 'table'>('auto');
 
+  // Regen staging — populated when .ogf/regen/<relPath> exists. The
+  // 'Regenerate' button instructs Codex to write there instead of
+  // overwriting; this state drives the side-by-side comparison panel.
+  const [regenBase64, setRegenBase64] = useState<string | null>(null);
+  const [regenBusy, setRegenBusy] = useState<'apply' | 'discard' | null>(null);
+
   const segments = props.relPath.split('/').filter(Boolean);
   const dir = segments.slice(0, -1).join('/');
 
@@ -99,6 +112,8 @@ export function FileEditor(props: Props) {
     setPipelineMeta(null);
     setSliceSource('none');
     setUsages(null);
+    setRegenBase64(null);
+    setRegenBusy(null);
 
     fetchFileContent(props.projectPath, props.relPath)
       .then((r) => {
@@ -202,6 +217,60 @@ export function FileEditor(props: Props) {
     };
   }, [kind, props.projectPath, props.relPath, dir, props.metadataRev]);
 
+  // Probe for a staged regenerate at .ogf/regen/<relPath>. The
+  // 'Regenerate' button writes there (instead of overwriting); when the
+  // staging file exists we surface a side-by-side comparison panel.
+  // Refetched on every relPath change AND every metadataRev bump
+  // (which the parent advances after the agent finishes a turn — so a
+  // fresh regen completed during a chat run shows up immediately).
+  useEffect(() => {
+    if (kind !== 'image') return;
+    let cancelled = false;
+    fetchRegenStaging(props.projectPath, props.relPath)
+      .then((r) => {
+        if (cancelled) return;
+        if (r.exists && r.base64) setRegenBase64(r.base64);
+        else setRegenBase64(null);
+      })
+      .catch(() => {
+        if (!cancelled) setRegenBase64(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [kind, props.projectPath, props.relPath, props.metadataRev]);
+
+  async function applyRegenChange() {
+    setRegenBusy('apply');
+    try {
+      await applyRegen(props.projectPath, props.relPath);
+      setRegenBase64(null);
+      // Bump our base64 by re-fetching the file so the inspector reloads
+      // the now-applied bytes (the file content endpoint returns cached
+      // bytes only on URL change; we trigger a fresh load via state reset).
+      setBase64(null);
+      const r = await fetchFileContent(props.projectPath, props.relPath);
+      if (r.kind === 'image') setBase64(r.base64 ?? '');
+      props.onSlicingSaved?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRegenBusy(null);
+    }
+  }
+
+  async function discardRegenChange() {
+    setRegenBusy('discard');
+    try {
+      await discardRegen(props.projectPath, props.relPath);
+      setRegenBase64(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRegenBusy(null);
+    }
+  }
+
   async function save() {
     if (kind !== 'text' || content === null || saving) return;
     setSaving(true);
@@ -272,17 +341,19 @@ Show me the diff before applying.`;
       naturalW > 0 && naturalH > 0
         ? `\n- Output dimensions should match: ${naturalW}×${naturalH} px.`
         : '';
-    const prompt = `Regenerate the sprite asset \`${props.relPath}\` using the \`generate2dsprite\` skill.
+    const regenPath = `.ogf/regen/${props.relPath.replace(/\\/g, '/')}`;
+    const prompt = `Regenerate the sprite asset \`${props.relPath}\` using the \`generate2dsprite\` skill, writing the result to a STAGING path so the user can compare it against the original before applying.
 
 Hard constraints:
 - USE the \`generate2dsprite\` skill (NOT raw image_gen — this is a hard rule, see project conventions).
 - INCLUDE the Style directive from \`.ogf/spec.md\` §1 verbatim in the prompt argument.
-- Overwrite the existing file in place at \`${props.relPath}\`.${sliceText}${dimsText}${usagesText}
+- DO NOT overwrite the original at \`${props.relPath}\`. The user will review and apply the swap themselves.
+- Write the new sprite to \`${regenPath}\` (create the directory if needed). OGF will detect this side-by-side file and show a comparison UI in the editor.${sliceText}${dimsText}${usagesText}
 
 What should change about this sprite? (edit the line below before sending — leave it blank to just regenerate a fresh take with the same intent)
 >
 
-After regenerating, show me what changed.`;
+When done, just confirm the file was written to \`${regenPath}\` — DON'T edit any other file. The user controls when (or if) the swap happens.`;
     props.onAskCodex(prompt);
   }
 
@@ -412,6 +483,46 @@ After regenerating, show me what changed.`;
               automaticLayout: true,
             }}
           />
+        </div>
+      )}
+
+      {isImage && imageUrl && regenBase64 && (
+        <div className="regen-banner">
+          <div className="regen-banner-head">
+            <span className="regen-banner-icon">{I.refresh}</span>
+            <span>Pending regenerate — review before applying</span>
+            <span className="regen-banner-spacer" />
+            <button
+              className="btn btn-sm btn-primary"
+              onClick={() => void applyRegenChange()}
+              disabled={regenBusy !== null}
+              title="Replace the original with the new image"
+            >
+              {regenBusy === 'apply' ? 'Applying…' : 'Use new'}
+            </button>
+            <button
+              className="btn btn-sm"
+              onClick={() => void discardRegenChange()}
+              disabled={regenBusy !== null}
+              title="Throw away the regenerated image, keep the original"
+            >
+              {regenBusy === 'discard' ? 'Discarding…' : 'Keep original'}
+            </button>
+          </div>
+          <div className="regen-compare">
+            <figure className="regen-side">
+              <figcaption>Original</figcaption>
+              <img src={imageUrl} alt="original" style={{ imageRendering: 'pixelated' }} />
+            </figure>
+            <figure className="regen-side regen-side-new">
+              <figcaption>New</figcaption>
+              <img
+                src={`data:${mime};base64,${regenBase64}`}
+                alt="regenerated"
+                style={{ imageRendering: 'pixelated' }}
+              />
+            </figure>
+          </div>
         </div>
       )}
 
