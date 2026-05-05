@@ -160,6 +160,113 @@ If the spec is missing a Style directive (legacy spec from before this
 rule), construct one from the available spec fields BEFORE calling the
 skill, then write it back into spec.md so future calls stay consistent.
 
+### Visual consistency — reference image workflow is MANDATORY
+
+Image generation models are stochastic. Even with an identical Style
+directive, two independent calls produce visually different characters
+— same prompt, different faces / proportions / palette emphasis.
+We've shipped projects where idle / walk / attack / death of the same
+character looked like four different people. **This is unacceptable
+and the fix is non-negotiable.** Every gen call after the project's
+first one must reference an existing asset via the \`view_image\` →
+generate workflow.
+
+#### The mandatory pattern (read before every gen call)
+
+Before calling \`generate2dsprite\` or \`generate2dmap\` for the
+SECOND or later time in a project, you MUST do these steps in order:
+
+**Step 1 — Identify the reference asset.** Pick the closest existing
+file using this priority:
+
+1. **Same character / asset**: generating another animation of an
+   existing character (\`scout_walk.png\` when \`scout_idle.png\`
+   exists)? Reference = that existing sheet.
+2. **Same family**: generating another enemy in the same army, another
+   tile in the same biome, another tower in the same line? Reference
+   = a previously generated sibling in the same category.
+3. **Project anchor**: \`.ogf/style-anchor.png\` if it exists.
+4. **Last fallback**: any previously generated asset in the project.
+
+If NONE of the above exist (you really are generating the first
+visual in the project), you are creating the implicit anchor — make
+your first gen the most representative one possible (the hero or
+main background, not a one-off prop) so future calls have a strong
+reference.
+
+**Step 2 — Make the reference visible to \`image_gen\` via \`view_image\`.**
+This is non-negotiable. Reading a path string into a prompt does NOT
+load the image into context. Without view_image, the model generates
+blind and you get the same drift you were trying to prevent.
+
+\`\`\`
+view_image: <path/to/reference.png>
+\`\`\`
+
+The reference image bytes go into the conversation, image_gen's next
+call sees them, generation is anchored.
+
+**Step 3 — State the reference role explicitly in the gen prompt.**
+The skill needs to know whether to copy the subject or only the
+style. Use one of these phrasings verbatim:
+
+- **Same character, new animation**:
+  > "Use the image just shown as the visual reference. PRESERVE the
+  > subject's identity exactly: silhouette, palette, face/eye
+  > features, costume marks, accessories, body proportions. Generate
+  > the SAME character in a different animation: <action>."
+
+- **Same family, sibling asset**:
+  > "Use the image just shown as a STYLE reference. Match: art style,
+  > palette, line weight, lighting, proportions. The new asset is a
+  > DIFFERENT subject (<id>) in the same world — do not copy the
+  > subject, only the rendering."
+
+- **Style anchor**:
+  > "Use the image just shown as a STYLE reference. Match: palette,
+  > line weight, overall aesthetic. The new asset is unrelated to the
+  > figure shown — only the rendering style must match."
+
+Pick the phrasing that fits the case; do not invent a fourth.
+
+**Step 4 — Pass the right \`reference\` parameter to the skill.**
+\`generate2dsprite\` / \`generate2dmap\` accept
+\`reference: 'generated_image' | 'local_file' | 'attached_image' | 'none'\`.
+After view_image you set \`reference: 'generated_image'\` (the bytes
+are now in context as a generated-image-like asset).
+
+#### What this prevents
+
+- Same character drifting across animations (idle is bald, walk has
+  a hat, attack has a beard, death is a different species)
+- Faction members looking visually unrelated to each other
+- Random art-style drift between background and characters
+- Palette drift across the project as gens accumulate
+- Per-frame instability inside a single sheet — the skill's existing
+  containment rules cover frame-to-frame, but reference also helps
+
+#### Forbidden patterns
+
+- ❌ Pasting the file path into the prompt without view_image — the
+  model never sees the file, generation is blind.
+- ❌ Generating the second character without referencing the first.
+- ❌ "Match the style of <id>" in plain prose without view_image of
+  that id.
+- ❌ Skipping reference because "this is just a small prop, doesn't
+  matter" — small props drift the most because the model fills in
+  more from defaults.
+
+#### Style anchor file
+
+\`.ogf/style-anchor.png\` is OGF's project-wide visual canon — the
+reference of last resort. If the spec's Phase 1 doesn't already
+generate one, the FIRST \`generate2dsprite\` call's output should be
+copied to that path so subsequent calls have an anchor. A good anchor
+is a 3×2 grid showing one of each category (hero / enemy / prop /
+environment tile / effect / UI element) in a single image, all in
+the project's locked palette and line weight. \`generate2dsprite\` can
+emit one with \`asset_type: 'style_anchor'\` if you ask.
+
 ### Generating ≠ done — you MUST wire it into game data
 
 Both skills produce ASSETS only. The generated \`assets/\*\` files are

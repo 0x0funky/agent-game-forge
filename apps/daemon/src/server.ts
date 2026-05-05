@@ -1153,6 +1153,7 @@ Use this exact 8-section structure:
   - art_style=neon + color_mood=cool + world=scifi + ref=Hyper Light Drifter:
     "Style: high-contrast neon pixel art, cool palette (electric cyan / magenta / deep navy), retro-futurist sci-fi motifs (chrome / glow lines / glitch artifacts), Hyper Light Drifter-style minimal but punchy silhouettes."
   Without this directive in your gen calls, the model defaults to generic illustration — the user picked 'pixel' and got 'painterly'. Don't ship that.
+- **Visual anchor**: \`.ogf/style-anchor.png\` (project-wide visual canon — created by the first generate2dsprite call's output, then referenced by every subsequent call via view_image). Note in the spec that Phase 1 must establish this anchor BEFORE generating any characters. Once it exists, every later \`generate2dsprite\` / \`generate2dmap\` call MUST view_image the closest existing reference (same-character sheet > same-family sibling > anchor) and pass \`reference: 'generated_image'\` to the skill. This is enforced by the conventions; spec just declares the asset's existence here.
 
 ## 2. Player config
 - Sprite layout (NxM at K fps + sprite size)
@@ -1204,6 +1205,8 @@ These rules came from real specs that produced broken games:
    - **full**: 3+ characters × 6+ anims, 8+ enemies, 5+ levels, save system, polish loops.
 
   9. **Generate sprites with \`generate2dsprite\`, NEVER raw \`image_gen\`.** Each cell of an animation row MUST be a distinct pose progression — submitting a 4×4 sheet where every cell is the same pose ships a frozen-corpse character. Frame COUNT per anim is your judgement (genre / completeness / target style decide), but the count must mean what it claims: a 4-frame walk row shows 4 distinct walk poses, not 1 pose × 4. Spec §2 should list animation NAMES; per-anim frame counts can be authored at sheet-generation time.
+
+  9b. **Visual consistency: every gen after the first MUST reference an existing asset.** Image generation is stochastic — same character generated twice independently looks like two different people. Phase 1 MUST establish \`.ogf/style-anchor.png\` (or designate the first character's idle sheet as the de-facto anchor). Every subsequent \`generate2dsprite\` / \`generate2dmap\` call must \`view_image\` the closest reference (same-character sheet > same-family sibling > anchor) BEFORE calling the skill, and pass \`reference: 'generated_image'\` so the skill knows to chain. Pasting a path string into the prompt without view_image does NOT count — bytes have to be in context. Skipping this is the #1 cause of "the same character looks different in idle vs walk" bugs we've shipped. See conventions for the exact prompt phrasing per reference role.
 
   10. **Godot only — author the wrapper-position pattern for unified props.** Platforms / walls / static decorations should be \`StaticBody2D\` wrappers with \`Sprite2D\` and \`CollisionShape2D\` children at local \`(0, 0)\`. The wrapper owns the position; both children inherit. In OGF Scenes tab the prop and collider will appear linked — moving one moves both. That's correct. See conventions for when to break the pattern (e.g. trunk-only collider on a wide tree sprite). Spec §6 should list each prop kind's structure: 'PlatformX (StaticBody2D / wrapper) → Sprite2D + CollisionShape2D' so the user knows what's linked vs independent.
 
@@ -1464,6 +1467,8 @@ The very next turn after the user submits the discovery form, you do TWO things 
 - Premise: <from form>
 - Target session length: <derived from completeness>
 - Completeness tier: <minimal | core | polished | full>
+- **Style directive**: <REQUIRED — write a 1-2 sentence concrete art-direction line: art_style + color_mood (with explicit HEX palette ideally) + world_setting + reference games. Every gen call must paste this verbatim.>
+- **Visual anchor**: \`.ogf/style-anchor.png\` (Phase 1 must establish this before generating any characters; every later generate2dsprite / generate2dmap call must view_image the closest existing reference and pass \`reference: 'generated_image'\` per the conventions block).
 
 ## 2. Player
 - Sprite layout: <NxM at K fps; specific to genre + completeness>
