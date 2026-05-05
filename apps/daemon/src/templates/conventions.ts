@@ -200,6 +200,49 @@ If the spec is missing a Style directive (legacy spec from before this
 rule), construct one from the available spec fields BEFORE calling the
 skill, then write it back into spec.md so future calls stay consistent.
 
+### Game context — genre + view perspective in every gen prompt
+
+Style directive alone is not enough. The image-gen model needs to know
+WHAT KIND OF GAME this asset is for so it picks the right visual
+conventions. A character drawn for a platformer (side view, exaggerated
+silhouette, big readable feet) is the WRONG character for a tower
+defense (top-down 3/4 view, compressed silhouette, small footprint).
+A background drawn for an RPG (lush detailed environment) is the WRONG
+background for a roguelike (procedural-friendly, modular tiles).
+
+**Every \`generate2dsprite\` and \`generate2dmap\` prompt MUST also include:**
+
+1. **Genre** — exact term from spec.md §1 (e.g. \`tower defense\`,
+   \`top-down RPG\`, \`side-scrolling platformer\`, \`bullet hell\`,
+   \`metroidvania\`, \`monster-taming\`, \`roguelike\`, \`tactics\`,
+   \`puzzle\`, \`idle/clicker\`).
+2. **View perspective** — derived from genre + camera in spec
+   (\`top-down\`, \`3/4 isometric\`, \`pure side view\`, \`forced 2.5D\`).
+3. **Sprite scale context** — relative to the world. "48px actor on
+   a 1280×720 battlefield with 64px towers" tells the model the
+   density expectation. Without this, it draws the actor too detailed
+   for the screen real estate.
+
+Concrete example for a generate2dsprite call in TD-game:
+\`\`\`
+Genre: tower defense (Kingdom Rush-like). View: 3/4 top-down,
+slight forward tilt. World: 1280×720 battlefield, ~48px actor
+height, towers occupy ~64px footprint slots. Style: <full Style
+directive verbatim>. Generate <asset_type>: <id>, <action>...
+\`\`\`
+
+Example for a generate2dmap call:
+\`\`\`
+Genre: tower defense (Kingdom Rush-like). View: 3/4 top-down route
+defense camera, locked. World: 1280×720 single-screen battlefield
+with one winding enemy path. Style: <full Style directive verbatim>.
+Generate the background: <description>...
+\`\`\`
+
+Without genre + view, you get sprites in the wrong perspective for
+the game (top-down character rendered as a side-view platformer hero,
+or vice versa) and they look broken in-engine.
+
 ### Visual consistency — reference image workflow is MANDATORY
 
 Image generation models are stochastic. Even with an identical Style

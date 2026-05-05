@@ -1145,7 +1145,9 @@ Use this exact 8-section structure:
 - Genre / Art style / World setting / Color mood / Premise / Target session length / Completeness tier / Difficulty / Win condition
 - Engine: read from the conventions block above (web or godot — DON'T re-ask the user, the project's engine was fixed at creation)
 - References: list any reference games the user named — they're the strongest single signal for what to build, treat them as soft constraints throughout
-- **Style directive** (REQUIRED — write a 1-2 sentence concrete art-direction line combining art_style + color_mood + world_setting + references). This sentence is the SOURCE OF TRUTH for every visual asset and you MUST paste it VERBATIM into every \`generate2dsprite\` and \`generate2dmap\` call's prompt. Don't paraphrase. Don't drop fields. Examples:
+- **View / camera** (REQUIRED — derived from genre + camera): \`top-down\` / \`3/4 isometric\` / \`pure side view\` / \`forced 2.5D\` / \`locked screen\` / \`parallax\`. EVERY gen prompt must include this verbatim alongside the Style directive — without it the model picks the wrong perspective for your game (a side-view platformer hero rendered for a tower-defense top-down camera looks broken in-engine).
+- **World scale** (REQUIRED — viewport + actor height + key-asset footprint): e.g. \`1280×720 battlefield, ~48px actor height, ~64px tower footprint\`. Tells the model the density expectation so it doesn't render the actor too detailed for the screen real estate.
+- **Style directive** (REQUIRED — write a 1-2 sentence concrete art-direction line combining art_style + color_mood + world_setting + references). This sentence is the SOURCE OF TRUTH for every visual asset and you MUST paste it VERBATIM into every \`generate2dsprite\` and \`generate2dmap\` call's prompt — alongside the Genre / View / Scale fields above so the model has both art style AND game context. Don't paraphrase. Don't drop fields. Examples:
   - art_style=pixel + color_mood=warm + world=historical-Japan + ref=Mega Man:
     "Style: 16-bit chunky pixel art, ~48px sprite height, sharp pixel edges, no anti-aliasing, warm sunset palette (deep reds / burnt orange / gold), feudal-Japan motifs (hakama, katana, lanterns), readable Mega Man-style silhouettes."
   - art_style=painterly + color_mood=dark + world=horror + ref=Hollow Knight:
@@ -1205,6 +1207,8 @@ These rules came from real specs that produced broken games:
    - **full**: 3+ characters × 6+ anims, 8+ enemies, 5+ levels, save system, polish loops.
 
   9. **Generate sprites with \`generate2dsprite\`, NEVER raw \`image_gen\`.** Each cell of an animation row MUST be a distinct pose progression — submitting a 4×4 sheet where every cell is the same pose ships a frozen-corpse character. Frame COUNT per anim is your judgement (genre / completeness / target style decide), but the count must mean what it claims: a 4-frame walk row shows 4 distinct walk poses, not 1 pose × 4. Spec §2 should list animation NAMES; per-anim frame counts can be authored at sheet-generation time.
+
+  9a. **Every gen prompt MUST include game-context (genre + view + scale)** in addition to the Style directive. Without it the model picks the wrong perspective for your game (e.g. a side-view platformer hero for a tower defense top-down camera) and the asset looks broken in-engine. Concrete example: 'Genre: tower defense (Kingdom Rush-like). View: 3/4 top-down. World: 1280×720 battlefield, ~48px actor height, ~64px tower footprint. Style: <directive verbatim>. Generate <asset>...'. See conventions for required fields per skill call.
 
   9b. **Visual consistency: every gen after the first MUST reference an existing asset.** Image generation is stochastic — same character generated twice independently looks like two different people. Phase 1 MUST establish \`.ogf/style-anchor.png\` (or designate the first character's idle sheet as the de-facto anchor). Every subsequent \`generate2dsprite\` / \`generate2dmap\` call must \`view_image\` the closest reference (same-character sheet > same-family sibling > anchor) BEFORE calling the skill, and pass \`reference: 'generated_image'\` so the skill knows to chain. Pasting a path string into the prompt without view_image does NOT count — bytes have to be in context. Skipping this is the #1 cause of "the same character looks different in idle vs walk" bugs we've shipped. See conventions for the exact prompt phrasing per reference role.
 
@@ -1467,6 +1471,8 @@ The very next turn after the user submits the discovery form, you do TWO things 
 - Premise: <from form>
 - Target session length: <derived from completeness>
 - Completeness tier: <minimal | core | polished | full>
+- **View / camera**: <top-down | 3/4 isometric | side-scrolling | locked screen | parallax — derived from genre. EVERY gen prompt must include this so the model picks the right perspective.>
+- **World scale**: <viewport size + actor height + key-asset footprint, e.g. '1280×720 battlefield, ~48px actor height, ~64px tower footprint'. EVERY gen prompt must include this so the model gets density / detail right.>
 - **Style directive**: <REQUIRED — write a 1-2 sentence concrete art-direction line: art_style + color_mood (with explicit HEX palette ideally) + world_setting + reference games. Every gen call must paste this verbatim.>
 - **Visual anchor**: \`.ogf/style-anchor.png\` (Phase 1 must establish this before generating any characters; every later generate2dsprite / generate2dmap call must view_image the closest existing reference and pass \`reference: 'generated_image'\` per the conventions block).
 
