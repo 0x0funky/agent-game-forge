@@ -713,6 +713,12 @@ export function App() {
           if (project) {
             void refreshTree(project);
             void refreshPending(project);
+            // Bump metadataRev so FileEditor re-fetches sidecar metadata
+            // (slicing JSON, .ogf/regen/<relPath> staging probe, etc).
+            // Without this, a regenerate completed during the turn won't
+            // surface its diff banner until the user switches files or
+            // refreshes the page.
+            bumpMetadataRev();
             setRecentlyChanged(turnChanged);
             // Trigger SceneEditor refetch — agent likely edited a .tscn / sidecar.
             setSceneReloadKey((n) => n + 1);
