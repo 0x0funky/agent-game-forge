@@ -2434,9 +2434,10 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 3px 12px;
+  padding: 0 12px;
+  height: 22px;
   font-size: 11px;
-  line-height: 1.2;
+  line-height: 1;
   color: var(--ink-0);
   background: var(--accent-soft);
   border-bottom: 1px solid var(--accent-line);
@@ -2444,9 +2445,14 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
   flex-shrink: 0;
 }
 .regen-actionbar .btn-sm {
-  padding: 2px 8px;
-  font-size: 11px;
-  line-height: 1.4;
+  height: 18px;
+  padding: 0 8px;
+  font-size: 10.5px;
+  line-height: 1;
+}
+.regen-actionbar .regen-banner-icon svg {
+  width: 13px;
+  height: 13px;
 }
 .regen-banner-icon {
   display: inline-flex;
@@ -2470,12 +2476,16 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
   min-width: 0;
   min-height: 0;
 }
+/* Stack caption / sheet / anim TIGHTLY together and center the
+ * group within the cell (was a 3-row grid that stretched the
+ * sheet row to fill height, dumping the anim at the bottom of
+ * the canvas with a big gap between sheet and anim). */
 .regen-side {
   margin: 0;
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-items: center;
+  justify-content: center;
   gap: 8px;
   min-width: 0;
   min-height: 0;
@@ -2492,7 +2502,8 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
 }
 .regen-side img {
   max-width: 100%;
-  max-height: 100%;
+  /* Leave room for caption (~14px) + gap + anim (~108px) + gaps */
+  max-height: calc(100% - 150px);
   object-fit: contain;
   background:
     linear-gradient(45deg, var(--check-1) 25%, transparent 25%),
