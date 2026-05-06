@@ -30,6 +30,7 @@ import type {
   SceneImagePayload,
   SceneLayer,
   SceneModel,
+  ScenePath,
   SceneProp,
   SceneZone,
   Vec2,
@@ -127,6 +128,7 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
   const props: SceneProp[] = [];
   const colliders: SceneCollider[] = [];
   const zones: SceneZone[] = [];
+  const scenePaths: ScenePath[] = [];
   const referenced: Set<string> = new Set();
   const notes: string[] = [];
   let counter = 0;
@@ -227,6 +229,7 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
     'props',
     'blockers',
     'colliders',         // ← collision rects, parsed as SceneCollider below
+    'paths',             // ← path point sequences, parsed as ScenePath below
     'walkBounds',
     'spawn_points',
   ]);
@@ -331,6 +334,29 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
       position: entryCenterPosition(c),
       shape,
       editable: shape.kind !== 'polygon',
+    });
+  });
+
+  // ---- Paths (TD enemy routes / NPC patrols / bezier-like point sequences) ----
+  // Tower-defense levels emit `paths: [{ id, points: [{x,y},...] }, ...]`.
+  // Each becomes a ScenePath the editor renders as a draggable polyline.
+  // Web JSON path coords are absolute world positions (not Path2D-style
+  // node-local), so we set origin = (0,0) and pass points through verbatim.
+  const rawPaths = Array.isArray(data.paths) ? (data.paths as Array<Record<string, unknown>>) : [];
+  rawPaths.forEach((p, idx) => {
+    const points = Array.isArray(p?.points) ? (p.points as Array<{ x?: unknown; y?: unknown }>) : [];
+    if (points.length < 2) return; // a single-point "path" isn't a path
+    const id = String(p.id ?? `path_${idx}`);
+    scenePaths.push({
+      uid: `web:paths:${id}`,
+      ref: { backend: 'json', relPath, section: 'paths', id },
+      name: id,
+      origin: { x: 0, y: 0 },
+      points: points
+        .map((pt) => ({ x: Number(pt?.x ?? 0), y: Number(pt?.y ?? 0) }))
+        .filter((pt) => Number.isFinite(pt.x) && Number.isFinite(pt.y)),
+      hasBezierHandles: false,
+      editable: true,
     });
   });
 
@@ -492,7 +518,7 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
     collidersJsonPath: relPath,
     zones,
     zonesJsonPath: relPath,
-    paths: [],
+    paths: scenePaths,
     notes,
   };
 

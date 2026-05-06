@@ -825,6 +825,81 @@ For \`survivor / arena\`, also scatter enemies / pickups across the
 full mapSize, not just within the viewport — otherwise the larger
 world feels empty.
 
+## Genre-specific data shapes that OGF needs to render
+
+OGF's web Scene editor only renders entities it can recognize. Two
+shapes that have caused 'agent wrote it but I can't see / edit it'
+issues:
+
+### Paths — always plural array, never singular object
+
+For TD enemy routes, NPC patrols, side-scroller patrol paths, or any
+ordered point sequence the runtime will follow:
+
+\`\`\`json
+✅ "paths": [
+  { "id": "main_road",
+    "points": [
+      { "x": -40, "y": 342 },
+      { "x": 145, "y": 300 },
+      { "x": 290, "y": 410 }
+    ]
+  }
+]
+
+❌ "path": { "id": "main_road", "points": [...] }    // singular object — invisible
+❌ "path": [[ -40, 342 ], [145, 300]]                 // pair-array — invisible
+\`\`\`
+
+The OGF web loader parses \`level.paths[]\` (plural array of
+\`{ id, points: [{x,y},...] }\` objects) and renders each as a
+draggable polyline in the Scene tab. Singular-object form OR
+array-of-pairs form is silently dropped.
+
+Multiple paths in one level (e.g. branching enemy routes) are fine —
+just add more entries to the array. Each path needs at least 2 points.
+
+### Build pads / placement zones — rect, not circle
+
+TD build pads, RPG interaction zones, generic placement targets — all
+use rect geometry in the level JSON so OGF can show + drag them:
+
+\`\`\`json
+✅ "buildSpots": [
+  { "id": "pad_archer_01", "x": 152, "y": 172, "w": 36, "h": 36,
+    "allowed": ["archer_roost", "strategist_drum"] }
+]
+
+❌ { "id": "pad_archer_01", "x": 170, "y": 190, "radius": 36, ... }
+\`\`\`
+
+Why: the OGF entity auto-detector requires \`{x, y, w, h}\` with
+positive size to render an editable outline. \`radius\`-only entries
+get dropped. Runtime can compute a circular placement zone from the
+rect (\`radius = w / 2\`) if it needs the round-area semantics.
+
+Same rule for any other circle-shaped gameplay zone (interact, trigger,
+sense radius): write as rect in JSON, compute radius in code.
+
+### What's editable in OGF Scene tab vs not
+
+For TD games specifically — important user expectation:
+
+- ✅ Build pads (placeable zones) — drag to reposition
+- ✅ Path points — drag each waypoint
+- ✅ Background image — fixed, not draggable
+- ✅ Hazards / pickups (if any) — drag
+- ❌ Towers themselves — NOT pre-placed. Player places them at
+     runtime by clicking build pads. So no \`towers[]\` array in the
+     level JSON; only the catalog \`data/towers.json\` exists.
+- ❌ Enemies — spawned by \`waves.json\` timeline at runtime, not
+     placed at level-load. No \`enemies[]\` array in the TD level.
+
+If your spec says 'tower defense' and you find yourself writing a
+\`towers[]\` or \`enemies[]\` placement array in the level JSON, stop —
+TD entities are runtime-spawned. Author the catalog + waves + paths,
+let the runtime do the rest.
+
 ## Phase verification policy — you are headless; DON'T try to see
 
 Phase verification rows in \`.ogf/spec.md\` say things like 'open Play
