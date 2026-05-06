@@ -2433,13 +2433,20 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
 .regen-actionbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  font-size: 12.5px;
+  gap: 8px;
+  padding: 3px 12px;
+  font-size: 11px;
+  line-height: 1.2;
   color: var(--ink-0);
   background: var(--accent-soft);
   border-bottom: 1px solid var(--accent-line);
   border-left: 3px solid var(--accent);
+  flex-shrink: 0;
+}
+.regen-actionbar .btn-sm {
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
 }
 .regen-banner-icon {
   display: inline-flex;
@@ -2450,7 +2457,8 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
 
 /* Side-by-side diff occupying the canvas-area. canvas-area uses
  * `display: grid; place-items: center` — give the compare grid a
- * fixed full-area block so both panels expand evenly. */
+ * fixed full-area block so both panels expand evenly. Each side
+ * stacks: caption / sheet image / animated SpritePreview. */
 .regen-compare {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2464,9 +2472,10 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
 }
 .regen-side {
   margin: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
   align-items: center;
+  justify-items: center;
   gap: 8px;
   min-width: 0;
   min-height: 0;
@@ -2483,7 +2492,7 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
 }
 .regen-side img {
   max-width: 100%;
-  max-height: calc(100% - 22px);
+  max-height: 100%;
   object-fit: contain;
   background:
     linear-gradient(45deg, var(--check-1) 25%, transparent 25%),
@@ -2498,6 +2507,12 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
 }
 .regen-side-new img {
   border-color: var(--accent-line);
+}
+.regen-anim {
+  padding: 6px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
 }
 
 /* Form-submit user message — shown in place of the raw '## Form answers'

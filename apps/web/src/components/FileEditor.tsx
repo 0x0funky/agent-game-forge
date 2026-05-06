@@ -74,6 +74,8 @@ export function FileEditor(props: Props) {
   // overwriting; this state drives the side-by-side comparison panel.
   const [regenBase64, setRegenBase64] = useState<string | null>(null);
   const [regenBusy, setRegenBusy] = useState<'apply' | 'discard' | null>(null);
+  const [regenNaturalW, setRegenNaturalW] = useState(0);
+  const [regenNaturalH, setRegenNaturalH] = useState(0);
 
   const segments = props.relPath.split('/').filter(Boolean);
   const dir = segments.slice(0, -1).join('/');
@@ -114,6 +116,8 @@ export function FileEditor(props: Props) {
     setUsages(null);
     setRegenBase64(null);
     setRegenBusy(null);
+    setRegenNaturalW(0);
+    setRegenNaturalH(0);
 
     fetchFileContent(props.projectPath, props.relPath)
       .then((r) => {
@@ -526,14 +530,38 @@ When done, just confirm the file was written to \`${regenPath}\` — DON'T edit 
                     }}
                     style={{ imageRendering: 'pixelated' }}
                   />
+                  {slice && naturalW > 0 && (
+                    <div className="regen-anim">
+                      <SpritePreview
+                        imageUrl={imageUrl}
+                        natW={naturalW}
+                        natH={naturalH}
+                        slice={slice}
+                      />
+                    </div>
+                  )}
                 </figure>
                 <figure className="regen-side regen-side-new">
                   <figcaption>New</figcaption>
                   <img
                     src={`data:${mime};base64,${regenBase64}`}
                     alt="regenerated"
+                    onLoad={(e) => {
+                      setRegenNaturalW(e.currentTarget.naturalWidth);
+                      setRegenNaturalH(e.currentTarget.naturalHeight);
+                    }}
                     style={{ imageRendering: 'pixelated' }}
                   />
+                  {slice && regenNaturalW > 0 && (
+                    <div className="regen-anim">
+                      <SpritePreview
+                        imageUrl={`data:${mime};base64,${regenBase64}`}
+                        natW={regenNaturalW}
+                        natH={regenNaturalH}
+                        slice={slice}
+                      />
+                    </div>
+                  )}
                 </figure>
               </div>
             ) : (
