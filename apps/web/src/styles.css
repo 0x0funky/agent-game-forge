@@ -2382,6 +2382,28 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
   border-radius: 6px;
 }
 
+/* Pack disclosure banner — shown when the regen target is part of an
+ * animation pack (parent dir has sheet.png + pipeline-meta.json). Tells
+ * the user upfront that ALL files in the dir will swap atomically. */
+.regen-pack-disclosure {
+  padding: 10px 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-0);
+}
+.regen-pack-disclosure code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-2);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+}
+
 .utility-row {
   display: flex; gap: 6px; align-items: center;
 }

@@ -182,6 +182,24 @@ export const discardRegen = (projectPath: string, relPath: string) =>
     body: JSON.stringify({ projectPath, relPath }),
   });
 
+// Animation pack staging (whole-folder regen, see docs/asset-centric-view-plan.md).
+export const fetchPendingPacks = (projectPath: string) =>
+  jsonFetch<import('@ogf/contracts').PackListResponse>(
+    `/api/files/regen/packs?projectPath=${encodeURIComponent(projectPath)}`,
+  );
+export const applyPack = (req: import('@ogf/contracts').ApplyPackRequest) =>
+  jsonFetch<import('@ogf/contracts').ApplyPackResponse>('/api/files/regen/apply-pack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+export const discardPack = (req: import('@ogf/contracts').DiscardPackRequest) =>
+  jsonFetch<import('@ogf/contracts').DiscardPackResponse>('/api/files/regen/discard-pack', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+
 // Scenes (.tscn)
 export const fetchScene = (projectPath: string, relPath: string) =>
   jsonFetch<LoadSceneResponse>(

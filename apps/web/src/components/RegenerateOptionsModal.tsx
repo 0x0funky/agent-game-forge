@@ -21,6 +21,23 @@ export interface RegenerateOptions {
   fps: number;
 }
 
+/** What we figured out about this file: is it part of an animation pack
+ *  (a directory with sheet.png + pipeline-meta.json), and if so, what
+ *  other action folders exist in the same entity? */
+export interface PackContext {
+  /** True iff parent dir contains sheet.png AND pipeline-meta.json. */
+  isPack: boolean;
+  /** Project-relative pack dir (e.g. assets/sprites/scout/idle). */
+  packDir: string | null;
+  /** All files in the pack (project-relative). Used for the
+   *  "10 files swap atomically" disclosure. */
+  packFiles: string[];
+  /** Parallel action folders under the same entity (e.g. walk, attack
+   *  when regenerating idle). Each one's sheet.png is the canonical
+   *  visual reference for the same character. */
+  siblingActions: Array<{ name: string; sheetRelPath: string }>;
+}
+
 interface Props {
   /** Current slicing if known — pre-fills cols/rows/fps. */
   initial?: { cols?: number; rows?: number; fps?: number; naturalW?: number; naturalH?: number };
@@ -28,7 +45,7 @@ interface Props {
   relPath: string;
   projectPath: string;
   onCancel: () => void;
-  onSubmit: (opts: RegenerateOptions, siblings: string[]) => void;
+  onSubmit: (opts: RegenerateOptions, siblings: string[], packCtx: PackContext) => void;
 }
 
 const ASPECTS: Array<{ value: RegenerateOptions['aspectRatio']; label: string }> = [
@@ -40,6 +57,78 @@ const ASPECTS: Array<{ value: RegenerateOptions['aspectRatio']; label: string }>
   { value: '9:16', label: '9:16' },
   { value: 'free', label: 'Free (let model pick)' },
 ];
+
+/** Walk the file tree to determine whether `relPath` lives in an
+ *  animation-pack directory. */
+function detectPackContext(tree: FileNode, relPath: string): PackContext {
+  const norm = relPath.replace(/\\/g, '/');
+  const parts = norm.split('/');
+  const fileName = parts.pop() ?? '';
+  const parentRel = parts.join('/');
+
+  // Locate the parent dir node.
+  const parentNode = findNodeByRelPath(tree, parentRel);
+  if (!parentNode || !parentNode.children) {
+    return { isPack: false, packDir: null, packFiles: [], siblingActions: [] };
+  }
+
+  const childNames = parentNode.children
+    .filter((c) => c.kind === 'file')
+    .map((c) => c.name);
+  const isPack =
+    childNames.includes('sheet.png') && childNames.includes('pipeline-meta.json');
+  if (!isPack) {
+    return { isPack: false, packDir: null, packFiles: [], siblingActions: [] };
+  }
+
+  const packFiles = parentNode.children
+    .filter((c) => c.kind === 'file')
+    .map((c) => c.relPath.replace(/\\/g, '/'));
+
+  // Sibling actions: parent of parent's children that ARE pack dirs
+  // themselves, excluding the current pack.
+  const siblingActions: Array<{ name: string; sheetRelPath: string }> = [];
+  const grandparentRel = parts.slice(0, -1).join('/');
+  const grandparent = findNodeByRelPath(tree, grandparentRel);
+  if (grandparent?.children) {
+    for (const sib of grandparent.children) {
+      if (sib.kind !== 'dir' || sib.name === parts[parts.length - 1]) continue;
+      if (!sib.children) continue;
+      const sibChildren = sib.children
+        .filter((c) => c.kind === 'file')
+        .map((c) => c.name);
+      if (
+        sibChildren.includes('sheet.png') &&
+        sibChildren.includes('pipeline-meta.json')
+      ) {
+        siblingActions.push({
+          name: sib.name,
+          sheetRelPath: `${sib.relPath.replace(/\\/g, '/')}/sheet.png`,
+        });
+      }
+    }
+  }
+
+  // Mark fileName as used (avoid noUnusedLocals).
+  void fileName;
+
+  return {
+    isPack: true,
+    packDir: parentRel,
+    packFiles,
+    siblingActions,
+  };
+}
+
+function findNodeByRelPath(tree: FileNode, relPath: string): FileNode | null {
+  if (relPath === '' || tree.relPath.replace(/\\/g, '/') === relPath) return tree;
+  if (!tree.children) return null;
+  for (const c of tree.children) {
+    const found = findNodeByRelPath(c, relPath);
+    if (found) return found;
+  }
+  return null;
+}
 
 /** Suggest a reasonable cols × rows grid for a frame count.
  *  Prefers wider-than-tall (cols >= rows); falls back to N×1 for primes. */
@@ -72,8 +161,15 @@ export function RegenerateOptionsModal(props: Props) {
   const [rows, setRows] = useState(props.initial?.rows ?? 1);
   const [fps, setFps] = useState(props.initial?.fps ?? 8);
 
-  const [siblings, setSiblings] = useState<string[]>([]);
-  const [siblingsLoading, setSiblingsLoading] = useState(true);
+  const [packCtx, setPackCtx] = useState<PackContext>({
+    isPack: false,
+    packDir: null,
+    packFiles: [],
+    siblingActions: [],
+  });
+  const [scanLoading, setScanLoading] = useState(true);
+  /** Fallback for non-pack files: PNG siblings in the same dir. */
+  const [flatSiblings, setFlatSiblings] = useState<string[]>([]);
 
   const parentDir = useMemo(() => {
     const segs = props.relPath.replace(/\\/g, '/').split('/');
@@ -81,41 +177,51 @@ export function RegenerateOptionsModal(props: Props) {
     return segs.join('/');
   }, [props.relPath]);
 
-  // Discover sibling images in the same folder for visual consistency.
+  // Detect pack-ness + discover references in one tree walk.
   useEffect(() => {
     let cancelled = false;
-    setSiblingsLoading(true);
+    setScanLoading(true);
     fetchFileTree(props.projectPath)
       .then((res) => {
         if (cancelled) return;
-        const found: string[] = [];
-        const walk = (node: FileNode): void => {
-          if (node.children) {
-            for (const c of node.children) walk(c);
-          }
-          if (node.kind !== 'file') return;
-          const rp = node.relPath;
-          if (rp === props.relPath) return;
-          const norm = rp.replace(/\\/g, '/');
-          const dir = norm.split('/').slice(0, -1).join('/');
-          if (dir === parentDir && /\.(png|jpe?g|webp)$/i.test(norm)) {
-            found.push(norm);
-          }
-        };
-        walk(res.tree);
-        setSiblings(found);
+        const ctx = detectPackContext(res.tree, props.relPath);
+        setPackCtx(ctx);
+
+        if (!ctx.isPack) {
+          // Old behavior — flat sibling PNGs in same dir.
+          const found: string[] = [];
+          const walk = (node: FileNode): void => {
+            if (node.children) for (const c of node.children) walk(c);
+            if (node.kind !== 'file') return;
+            const rp = node.relPath;
+            if (rp === props.relPath) return;
+            const norm = rp.replace(/\\/g, '/');
+            const dir = norm.split('/').slice(0, -1).join('/');
+            if (dir === parentDir && /\.(png|jpe?g|webp)$/i.test(norm)) {
+              found.push(norm);
+            }
+          };
+          walk(res.tree);
+          setFlatSiblings(found);
+        }
       })
       .catch(() => {
-        // Non-fatal — agent will still ls itself.
-        setSiblings([]);
+        setPackCtx({ isPack: false, packDir: null, packFiles: [], siblingActions: [] });
+        setFlatSiblings([]);
       })
       .finally(() => {
-        if (!cancelled) setSiblingsLoading(false);
+        if (!cancelled) setScanLoading(false);
       });
     return () => {
       cancelled = true;
     };
   }, [props.projectPath, props.relPath, parentDir]);
+
+  // The list passed to the agent as visual references depends on whether
+  // this is a pack or a one-off file.
+  const referenceFiles = packCtx.isPack
+    ? packCtx.siblingActions.map((a) => a.sheetRelPath)
+    : flatSiblings;
 
   // Keep cols/rows in sync with frames when user changes frame count.
   function applyFrames(n: number) {
@@ -144,24 +250,57 @@ export function RegenerateOptionsModal(props: Props) {
         rows,
         fps,
       },
-      siblings,
+      referenceFiles,
+      packCtx,
     );
   }
 
   const gridMismatch = cols * rows !== frames;
+
+  // Parse entity / action from a pack dir like "assets/sprites/scout/idle".
+  const packLabel = packCtx.packDir
+    ? (() => {
+        const segs = packCtx.packDir.split('/');
+        const action = segs[segs.length - 1];
+        const entity = segs[segs.length - 2];
+        return `${entity} / ${action}`;
+      })()
+    : null;
 
   return (
     <div className="modal-scrim" onClick={props.onCancel}>
       <div className="modal modal-narrow" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
           <span style={{ color: 'var(--accent)' }}>{I.refresh}</span>
-          <span className="title">Regenerate sprite</span>
-          <span className="sub">{props.relPath}</span>
+          <span className="title">
+            {packCtx.isPack ? `Regenerate ${packLabel}` : 'Regenerate sprite'}
+          </span>
+          <span className="sub">
+            {packCtx.isPack ? packCtx.packDir : props.relPath}
+          </span>
           <button className="close" onClick={props.onCancel}>{I.close}</button>
         </div>
 
         <div className="modal-body" style={{ display: 'block', padding: 16, overflow: 'auto' }}>
           <div className="regen-form">
+            {packCtx.isPack && (
+              <div className="regen-pack-disclosure">
+                <strong>This regenerates the entire animation pack.</strong>{' '}
+                <span className="muted">
+                  All {packCtx.packFiles.length} files in <code>{packCtx.packDir}/</code>{' '}
+                  swap atomically when you apply.
+                  {packCtx.siblingActions.length > 0 && (
+                    <>
+                      {' '}
+                      Other actions of the same entity (
+                      {packCtx.siblingActions.map((a) => a.name).join(', ')})
+                      won't be touched.
+                    </>
+                  )}
+                </span>
+              </div>
+            )}
+
             {/* The two things that actually matter for most regenerates:
                 what should change, and which sibling sprites to match. */}
             <label className="regen-form-row regen-form-row-stack">
@@ -182,22 +321,26 @@ export function RegenerateOptionsModal(props: Props) {
                 onChange={(e) => setMatchSiblings(e.target.checked)}
               />
               <span>
-                Match style of sibling sprites in the same folder
-                {siblingsLoading ? (
+                {packCtx.isPack
+                  ? 'Match style of other actions of this entity'
+                  : 'Match style of sibling sprites in the same folder'}
+                {scanLoading ? (
                   <span className="muted mono" style={{ marginLeft: 6 }}>scanning…</span>
                 ) : (
-                  <span className="pill" style={{ marginLeft: 6 }}>{siblings.length} found</span>
+                  <span className="pill" style={{ marginLeft: 6 }}>
+                    {referenceFiles.length} found
+                  </span>
                 )}
               </span>
             </label>
 
-            {matchSiblingStyle && siblings.length > 0 && (
+            {matchSiblingStyle && referenceFiles.length > 0 && (
               <ul className="regen-siblings">
-                {siblings.slice(0, 6).map((s) => (
+                {referenceFiles.slice(0, 6).map((s) => (
                   <li key={s} className="mono">{s}</li>
                 ))}
-                {siblings.length > 6 && (
-                  <li className="muted mono">… and {siblings.length - 6} more</li>
+                {referenceFiles.length > 6 && (
+                  <li className="muted mono">… and {referenceFiles.length - 6} more</li>
                 )}
               </ul>
             )}

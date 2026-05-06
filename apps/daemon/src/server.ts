@@ -55,6 +55,10 @@ import {
   readFileSync as fsReadFileSync,
   copyFileSync as fsCopyFileSync,
   unlinkSync as fsUnlinkSync,
+  readdirSync as fsReaddirSync,
+  statSync as fsStatSync,
+  rmdirSync as fsRmdirSync,
+  mkdirSync as fsMkdirSync,
 } from 'node:fs';
 import {
   appendMessage as appendCommentMessage,
@@ -63,6 +67,7 @@ import {
   listThreads as listCommentThreads,
   updateThread as updateCommentThread,
 } from './comments.js';
+import type { PackLayout } from '@ogf/contracts';
 import type {
   AgentEvent,
   AgentsResponse,
@@ -468,6 +473,211 @@ export function createServer() {
     }
     if (fsExistsSync(regen)) fsUnlinkSync(regen);
     res.json({ ok: true });
+  });
+
+  // -------- Animation-pack staging --------
+  //
+  // generate2dsprite writes ~10 files per animation into one directory:
+  // sheet.png, individual frames, pipeline-meta.json, intermediates,
+  // animation.gif. They are internally consistent; regenerate must
+  // operate on the whole directory or the sibling files go stale.
+  //
+  // A directory IS a pack when it contains BOTH sheet.png AND
+  // pipeline-meta.json. Cheap detection — no schema needed.
+
+  /** Walk staging tree under .ogf/regen and yield every pack dir. */
+  function listPendingPacks(projectRoot: string): Array<{
+    /** project-relative dir (e.g. assets/sprites/scout/idle) */
+    packDir: string;
+    fileCount: number;
+    /** Layout from staging's pipeline-meta.json — null if missing/malformed. */
+    stagingLayout: PackLayout | null;
+    /** Layout from the live folder's pipeline-meta.json (the pre-apply layout). */
+    liveLayout: PackLayout | null;
+  }> {
+    const stagingRoot = path.join(projectRoot, '.ogf', 'regen');
+    if (!fsExistsSync(stagingRoot)) return [];
+    const out: ReturnType<typeof listPendingPacks> = [];
+    const walk = (absDir: string) => {
+      const entries = fsReaddirSync(absDir, { withFileTypes: true });
+      const isPack =
+        entries.some((e) => e.isFile() && e.name === 'sheet.png') &&
+        entries.some((e) => e.isFile() && e.name === 'pipeline-meta.json');
+      if (isPack) {
+        const packDir = path.relative(stagingRoot, absDir).split(path.sep).join('/');
+        const files = entries.filter((e) => e.isFile()).length;
+        out.push({
+          packDir,
+          fileCount: files,
+          stagingLayout: readPackLayout(path.join(absDir, 'pipeline-meta.json')),
+          liveLayout: readPackLayout(path.join(projectRoot, packDir, 'pipeline-meta.json')),
+        });
+        return; // don't recurse INTO a pack — packs are leaves
+      }
+      for (const e of entries) {
+        if (e.isDirectory()) walk(path.join(absDir, e.name));
+      }
+    };
+    walk(stagingRoot);
+    return out;
+  }
+
+  function readPackLayout(metaPath: string): PackLayout | null {
+    if (!fsExistsSync(metaPath)) return null;
+    try {
+      const json = JSON.parse(fsReadFileSync(metaPath, 'utf-8')) as Record<string, unknown>;
+      const cols = Number(json.cols ?? 0);
+      const rows = Number(json.rows ?? 0);
+      if (cols < 1 || rows < 1) return null;
+      const cellSize = Number(json.cell_size ?? 0);
+      const labels = Array.isArray(json.frame_labels)
+        ? (json.frame_labels as unknown[]).filter((s) => typeof s === 'string').length
+        : 0;
+      return {
+        cols,
+        rows,
+        frames: labels || cols * rows,
+        cellSize: cellSize > 0 ? cellSize : null,
+        // Skill writes `duration` (ms per frame); fps = 1000 / duration when present.
+        fps: typeof json.duration === 'number' && json.duration > 0
+          ? Math.round(1000 / json.duration)
+          : null,
+        anchor: typeof json.align === 'string' ? (json.align as string) : null,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Apply a single pack atomically — copy every file in staging to live,
+   *  then unlink staging files + remove empty dirs. */
+  function applyPack(projectRoot: string, packDir: string): {
+    applied: string[];
+    failed: Array<{ relPath: string; err: string }>;
+  } {
+    const stagingDir = path.join(projectRoot, '.ogf', 'regen', packDir);
+    const liveDir = path.join(projectRoot, packDir);
+    const applied: string[] = [];
+    const failed: Array<{ relPath: string; err: string }> = [];
+
+    if (!fsExistsSync(stagingDir)) return { applied, failed };
+
+    // Ensure live dir exists (regenerate of a brand-new entity is rare
+    // but possible).
+    if (!fsExistsSync(liveDir)) fsMkdirSync(liveDir, { recursive: true });
+
+    const stagedFiles = fsReaddirSync(stagingDir, { withFileTypes: true })
+      .filter((e) => e.isFile())
+      .map((e) => e.name);
+
+    for (const name of stagedFiles) {
+      const stagedPath = path.join(stagingDir, name);
+      const livePath = path.join(liveDir, name);
+      const relPath = `${packDir}/${name}`;
+      try {
+        fsCopyFileSync(stagedPath, livePath);
+        fsUnlinkSync(stagedPath);
+        applied.push(relPath);
+      } catch (err) {
+        failed.push({
+          relPath,
+          err: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    // Try to remove the empty staging dir (and any newly empty parents
+    // up to .ogf/regen). Non-fatal if dir isn't empty.
+    let dir = stagingDir;
+    const stagingRoot = path.join(projectRoot, '.ogf', 'regen');
+    while (dir !== stagingRoot && dir.startsWith(stagingRoot)) {
+      try {
+        fsRmdirSync(dir);
+        dir = path.dirname(dir);
+      } catch {
+        break;
+      }
+    }
+
+    return { applied, failed };
+  }
+
+  function discardPack(projectRoot: string, packDir: string): { discarded: string[] } {
+    const stagingDir = path.join(projectRoot, '.ogf', 'regen', packDir);
+    if (!fsExistsSync(stagingDir)) return { discarded: [] };
+    const discarded: string[] = [];
+    const stagedFiles = fsReaddirSync(stagingDir, { withFileTypes: true })
+      .filter((e) => e.isFile())
+      .map((e) => e.name);
+    for (const name of stagedFiles) {
+      try {
+        fsUnlinkSync(path.join(stagingDir, name));
+        discarded.push(`${packDir}/${name}`);
+      } catch {
+        // best-effort — skip
+      }
+    }
+    let dir = stagingDir;
+    const stagingRoot = path.join(projectRoot, '.ogf', 'regen');
+    while (dir !== stagingRoot && dir.startsWith(stagingRoot)) {
+      try {
+        fsRmdirSync(dir);
+        dir = path.dirname(dir);
+      } catch {
+        break;
+      }
+    }
+    return { discarded };
+  }
+
+  app.get('/api/files/regen/packs', (req, res) => {
+    const projectPath = req.query.projectPath;
+    if (typeof projectPath !== 'string') {
+      return res.status(400).json({ error: 'projectPath query required' });
+    }
+    const root = path.resolve(projectPath);
+    try {
+      res.json({ packs: listPendingPacks(root) });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/files/regen/apply-pack', (req, res) => {
+    const body = req.body as { projectPath?: string; packDir?: string };
+    if (!body?.projectPath || !body?.packDir) {
+      return res.status(400).json({ error: 'projectPath and packDir required' });
+    }
+    const root = path.resolve(body.projectPath);
+    const packDirAbs = path.join(root, '.ogf', 'regen', body.packDir);
+    if (!packDirAbs.startsWith(path.join(root, '.ogf', 'regen'))) {
+      return res.status(400).json({ error: 'invalid packDir' });
+    }
+    if (!fsExistsSync(packDirAbs)) {
+      return res.status(404).json({ error: 'no pending pack at that dir' });
+    }
+    try {
+      res.json(applyPack(root, body.packDir));
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  app.post('/api/files/regen/discard-pack', (req, res) => {
+    const body = req.body as { projectPath?: string; packDir?: string };
+    if (!body?.projectPath || !body?.packDir) {
+      return res.status(400).json({ error: 'projectPath and packDir required' });
+    }
+    const root = path.resolve(body.projectPath);
+    const packDirAbs = path.join(root, '.ogf', 'regen', body.packDir);
+    if (!packDirAbs.startsWith(path.join(root, '.ogf', 'regen'))) {
+      return res.status(400).json({ error: 'invalid packDir' });
+    }
+    try {
+      res.json(discardPack(root, body.packDir));
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
   });
 
   // -------- Reference images --------

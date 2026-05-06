@@ -143,6 +143,55 @@ export interface UploadRefRequest {
   base64: string;
 }
 
+// ── Animation pack staging ──
+//
+// generate2dsprite writes ~10 files per animation into one directory.
+// A directory is a pack iff it contains BOTH sheet.png AND
+// pipeline-meta.json. The pack staging endpoints work on directories
+// (packDir, project-relative) instead of single relPaths.
+
+export interface PackLayout {
+  cols: number;
+  rows: number;
+  frames: number;
+  cellSize: number | null;
+  fps: number | null;
+  anchor: string | null;
+}
+
+export interface PendingPack {
+  /** Project-relative directory (e.g. assets/sprites/scout/idle). */
+  packDir: string;
+  fileCount: number;
+  /** Layout of the staged pack. */
+  stagingLayout: PackLayout | null;
+  /** Layout of the live pack pre-apply (for diff). */
+  liveLayout: PackLayout | null;
+}
+
+export interface PackListResponse {
+  packs: PendingPack[];
+}
+
+export interface ApplyPackRequest {
+  projectPath: string;
+  packDir: string;
+}
+
+export interface ApplyPackResponse {
+  applied: string[];
+  failed: Array<{ relPath: string; err: string }>;
+}
+
+export interface DiscardPackRequest {
+  projectPath: string;
+  packDir: string;
+}
+
+export interface DiscardPackResponse {
+  discarded: string[];
+}
+
 export interface RefImage {
   relPath: string;
   size: number;
