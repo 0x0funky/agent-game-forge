@@ -689,6 +689,142 @@ every drag / select / scene change. When the user asks "this prop", "the
 selected zone", or refers to anything by visual position, read that file
 first.
 
+## Sprite direction strategy — pick by genre, then implement runtime
+
+Top-down games run into a sprite-direction question that side-scrollers
+don't have: when the player walks left, do you mirror the sprite or
+play a different left-facing animation? When they walk up, do you
+have a back-of-head sprite or just keep the same side-view sprite?
+
+Pick the strategy at spec time. **Lock it in spec.md §2 Player as a
+\`sprite_direction\` field** so the runtime knows what to implement
+and the skill knows how many sprites to generate.
+
+### Default direction strategy by genre
+
+| Genre | Default \`sprite_direction\` | Sprites needed | Runtime |
+|-------|------------------------------|----------------|---------|
+| side-scrolling platformer | \`side_with_flip\` | 1 set, side-view | mirror when facing.x < 0 |
+| **survivor / arena** (Vampire Survivors-like) | \`side_with_flip\` | 1 set, side-view | same — yes even though camera is top-down |
+| top-down RPG (Pokemon-like) | \`4_direction\` | 4 sets per anim (up/down/left/right) | pick sprite by facing direction |
+| top-down shooter (Hotline Miami / Isaac) | \`4_direction\` OR \`sprite_rotation\` | 4 sets OR 1 set rotated | per-direction OR ctx.rotate() |
+| beat-em-up | \`side_with_flip\` | 1 set | mirror; Y movement allowed |
+| fighting | \`side_with_flip\` | 1 set | auto-flip toward opponent |
+| bullet hell | \`static_facing\` | 1 set, facing up | no flip; player always faces up |
+| TD / fixed arena | \`static_facing\` | 1 set | towers face center / spawn |
+| VN / puzzle | \`static\` | portrait or none | no movement |
+
+### Defaults are not handcuffs
+
+If the user's prompt explicitly asks for a different strategy
+("I want my survivor to use 4-direction sprites for that retro Zelda
+feel"), respect it and write the override into spec.md §2 with a
+one-line note explaining why. The defaults are what to pick when the
+user didn't specify.
+
+### When you pick \`side_with_flip\` — runtime MUST implement flip
+
+ALL renderable entities (player + enemies + NPCs) need horizontal
+mirroring or they'll moonwalk. In src/render.js or per-entity render:
+
+\`\`\`js
+function drawEntitySprite(ctx, entity, sprite, sx, sy, frameW, frameH) {
+  const drawW = entity.displayW ?? entity.w;
+  const drawH = entity.displayH ?? entity.h;
+  const facingLeft = (entity.facing?.x ?? 1) < 0;
+
+  ctx.save();
+  if (facingLeft) {
+    ctx.translate(entity.x + drawW / 2, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(sprite, sx, sy, frameW, frameH,
+                  -drawW / 2, entity.y, drawW, drawH);
+  } else {
+    ctx.drawImage(sprite, sx, sy, frameW, frameH,
+                  entity.x - drawW / 2, entity.y, drawW, drawH);
+  }
+  ctx.restore();
+}
+\`\`\`
+
+Enemy facing logic: enemies face the **player**, not their movement
+direction. Update each frame:
+
+\`\`\`js
+enemy.facing.x = Math.sign(player.x - enemy.x) || enemy.facing.x || 1;
+\`\`\`
+
+(\`|| 1\` fallback so we never get facing.x === 0 — that breaks the flip.)
+
+### When you pick \`4_direction\` — generate 4× sprites + state machine
+
+Per character: 4 sprites per animation (up / down / left / right). So
+a player with idle + walk + attack = **12 generate2dsprite calls**, not
+3. Phase budget plan accordingly — typically the player is a phase by
+itself in 4_direction mode.
+
+Catalog \`animations\` becomes nested:
+
+\`\`\`json
+"animations": {
+  "idle": {
+    "up":    { "sprite": "...idle_up/sheet.png",    "frames": 2, "fps": 4 },
+    "down":  { "sprite": "...idle_down/sheet.png",  "frames": 2, "fps": 4 },
+    "left":  { "sprite": "...idle_left/sheet.png",  "frames": 2, "fps": 4 },
+    "right": { "sprite": "...idle_right/sheet.png", "frames": 2, "fps": 4 }
+  },
+  ...
+}
+\`\`\`
+
+Runtime picks: \`entity.animations[state][entity.facing.dir]\`.
+
+## Map size + camera by genre
+
+Another decision that shapes runtime feel: **is the world bigger than
+the viewport (scrolling), or is everything visible at once (locked)?**
+Wrong call here makes the gameplay feel constrained or empty.
+
+| Genre | Default \`mapSize\` | Default \`camera.mode\` |
+|-------|---------------------|--------------------------|
+| side-scroller | 3-10× viewport.width × viewport.height | \`horizontal-scroll\` or \`follow\` |
+| survivor / arena | **2-4× viewport** (both axes) | \`follow\` (player center, world scrolls under) |
+| top-down RPG | huge overworld OR room-chunk per level | \`follow\` |
+| top-down shooter | 2-4× viewport | \`follow\` |
+| beat-em-up | 3-5× viewport.width | \`scroll-forward\` |
+| TD / fixed arena (Kingdom Rush) | = viewport | \`locked\` |
+| bullet hell | = viewport | \`locked\` |
+| fighting | = viewport (or stage-width long) | \`locked\` or \`bounded-follow\` |
+| VN / puzzle | = viewport | \`locked\` |
+
+### Override signals
+
+If the user says any of these, lock to viewport size:
+- "single-screen"
+- "no scrolling"
+- "fixed view"
+- "everything visible at once"
+
+Otherwise apply the genre default.
+
+### When camera.mode = 'follow', wire it in 3 places
+
+1. **Level JSON** — \`camera: { mode: 'follow', x: 0, y: 0, w: <viewport.w>, h: <viewport.h>, followLead: 0.35 }\`
+2. **render.js / scene.js** — apply camera offset when drawing every entity / layer:
+   \`\`\`js
+   const camX = clamp(player.x - viewport.w / 2, 0, mapSize.w - viewport.w);
+   const camY = clamp(player.y - viewport.h / 2, 0, mapSize.h - viewport.h);
+   ctx.save();
+   ctx.translate(-camX, -camY);
+   // ... draw layers / entities ...
+   ctx.restore();
+   \`\`\`
+3. **walkBounds** — clamp player to mapSize so they can't leave the world.
+
+For \`survivor / arena\`, also scatter enemies / pickups across the
+full mapSize, not just within the viewport — otherwise the larger
+world feels empty.
+
 ## Phase verification policy — you are headless; DON'T try to see
 
 Phase verification rows in \`.ogf/spec.md\` say things like 'open Play
