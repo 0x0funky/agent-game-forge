@@ -658,6 +658,36 @@ environment tile / effect / UI element) in a single image, all in
 the project's locked palette and line weight. \`generate2dsprite\` can
 emit one with \`asset_type: 'style_anchor'\` if you ask.
 
+#### Animation-pack regenerate (OGF Editor → \`Regenerate\` button on a sprite in a pack folder)
+
+When the user opens any file in an animation-pack directory (the
+folder contains \`sheet.png\` + \`pipeline-meta.json\` + individual
+frame PNGs + intermediates) and clicks Regenerate, OGF sends a prompt
+asking you to remake the WHOLE folder, not just one file. The flow:
+
+1. The prompt will tell you to pass \`--output-dir .ogf/regen/<packDir>\`
+   to \`generate2dsprite\`. Do exactly that — the skill writes the full
+   ~10-file pack (sheet.png, individual frames, pipeline-meta.json,
+   intermediates, animation.gif) into that staging dir in one call.
+2. Reference siblings = OTHER ACTION sheets of the same entity
+   (e.g. when remaking \`scout/idle/\`, the prompt lists
+   \`scout/walk/sheet.png\` + \`scout/attack/sheet.png\`). Files in the
+   SAME folder are NOT references — they are the pack you're remaking.
+3. Use the \"Same character, new animation\" reference role per the
+   workflow above.
+4. **Don't touch the live folder, data files, or source code.** OGF
+   reads the layout straight from the pipeline-meta.json the skill
+   writes — no need to repeat it in chat. After the user applies the
+   swap, OGF will fire a follow-up turn with the layout diff and ask
+   you to patch slicing in catalog/code. THAT is where the data
+   updates happen, not before.
+5. The user can pick layout in the OGF modal: Quick (you decide
+   frames/grid/fps based on the action) or Manual (they specify a
+   layout). The prompt tells you which mode it's in. In Manual mode,
+   if the requested layout would force squashing the character (e.g.
+   forcing 1:1 cells when the action is wider), say so and ask
+   instead of squashing silently.
+
 #### Regenerate workflow (OGF Editor → \`Regenerate\` button)
 
 When the user clicks Regenerate on a sprite (e.g. \`scout_attack.png\`)

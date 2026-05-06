@@ -47,6 +47,7 @@ import { Dropzone, type DropzoneHandle } from './components/Dropzone.js';
 import { FolderPickerModal } from './components/FolderPickerModal.js';
 import { PendingChangesModal } from './components/PendingChangesModal.js';
 import { ImportCodexSessionModal } from './components/ImportCodexSessionModal.js';
+import { PackReviewModal } from './components/PackReviewModal.js';
 import { I } from './components/icons.js';
 import { useDialog } from './lib/dialog.js';
 
@@ -148,6 +149,11 @@ export function App() {
   // files / arbitrary data) stay in the Assets tab so they don't fail the
   // SceneEditor's mapSize check.
   const [webLevelFiles, setWebLevelFiles] = useState<Set<string>>(new Set());
+
+  // Pack staging — generate2dsprite writes a whole anim folder into
+  // .ogf/regen/<dir>/. We poll on project select + after each run end.
+  const [pendingPacks, setPendingPacks] = useState<import('@ogf/contracts').PendingPack[]>([]);
+  const [showPackReview, setShowPackReview] = useState(false);
 
   // Navigation history (back/forward through tab + file selection)
   type NavState = { tab: Tab; selectedFile: { relPath: string; fileKind?: FileNode['fileKind'] } | null };
@@ -395,6 +401,21 @@ export function App() {
     }
   }, []);
 
+  /** Refresh the pending-pack list from the daemon. Called on project
+   *  select and after each run end. */
+  const refreshPendingPacks = useCallback(async (p: Project | null) => {
+    if (!p) {
+      setPendingPacks([]);
+      return;
+    }
+    try {
+      const r = await import('./lib/api.js').then((m) => m.fetchPendingPacks(p.path));
+      setPendingPacks(r.packs);
+    } catch {
+      setPendingPacks([]);
+    }
+  }, []);
+
   // Boot
   useEffect(() => {
     fetchAgents()
@@ -459,6 +480,7 @@ export function App() {
         .then((r) => setRefs(r.refs))
         .catch(() => setRefs([]));
       void loadWebLevelRegistry(p);
+      void refreshPendingPacks(p);
 
       // Default-load the main scene if we don't have a saved selection yet.
       // We wait for analyze to come back so mainScene is known.
@@ -805,6 +827,9 @@ export function App() {
             // newly-generated level JSONs route to Assets instead of
             // Scenes when clicked.
             void loadWebLevelRegistry(project);
+            // Pick up any animation packs the agent staged into
+            // .ogf/regen/ during this turn.
+            void refreshPendingPacks(project);
             // Bump metadataRev so FileEditor re-fetches sidecar metadata
             // (slicing JSON, .ogf/regen/<relPath> staging probe, etc).
             // Without this, a regenerate completed during the turn won't
@@ -1108,6 +1133,46 @@ export function App() {
             } catch (err) {
               notify({ kind: 'error', title: 'Could not create file', body: err instanceof Error ? err.message : String(err) });
             }
+          }}
+        />
+      )}
+
+      {/* Pending packs floating chip — bottom-right of viewport. Only
+          shows when there's at least one pack staged in .ogf/regen/.
+          Click → opens PackReviewModal. */}
+      {pendingPacks.length > 0 && !showPackReview && (
+        <button
+          className="pending-packs-chip"
+          onClick={() => setShowPackReview(true)}
+          title="Review and apply staged animation packs"
+        >
+          {I.refresh}
+          <span>
+            {pendingPacks.length === 1
+              ? `1 pack ready (${pendingPacks[0]!.fileCount} files)`
+              : `${pendingPacks.length} packs ready`}
+          </span>
+          <span className="muted">→ Review</span>
+        </button>
+      )}
+
+      {showPackReview && project && pendingPacks.length > 0 && (
+        <PackReviewModal
+          projectPath={project.path}
+          packs={pendingPacks}
+          onClose={() => setShowPackReview(false)}
+          onPackResolved={() => void refreshPendingPacks(project)}
+          onRequestCodeUpdate={(promptText) => {
+            // Drop the auto-fired code-update prompt into the composer
+            // so the user can review + send (rather than auto-firing —
+            // they may want to tweak before submission).
+            setPrompt(promptText);
+            window.setTimeout(() => {
+              const el = document.querySelector('.composer-box textarea') as HTMLTextAreaElement | null;
+              el?.focus();
+              el?.setSelectionRange(promptText.length, promptText.length);
+              el?.scrollTo(0, 0);
+            }, 0);
           }}
         />
       )}
