@@ -18,5 +18,16 @@ if (!existsSync(srcDir)) {
 }
 
 mkdirSync(path.dirname(dstDir), { recursive: true });
-cpSync(srcDir, dstDir, { recursive: true, filter: (src) => /\.md$|\/$/.test(src) || !path.extname(src) });
+// Copy .md (rules) and .yaml (invocation defaults) but skip .py (codex
+// runs scripts from its own ~/.codex/skills/, not from our copy) and
+// __pycache__. Directories must pass through so cpSync can recurse.
+cpSync(srcDir, dstDir, {
+  recursive: true,
+  filter: (src) => {
+    if (src.includes('__pycache__')) return false;
+    const ext = path.extname(src);
+    if (!ext) return true; // directory
+    return ext === '.md' || ext === '.yaml';
+  },
+});
 console.log(`[copy-skills] copied ${srcDir} → ${dstDir}`);

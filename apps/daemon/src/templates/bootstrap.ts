@@ -35,7 +35,14 @@ function vendoredSkillFiles(): ScaffoldFile[] {
         walk(absChild, [...relSegments, entry]);
         continue;
       }
-      if (!entry.endsWith('.md')) continue;
+      // Bundle:
+      //   .md  — SKILL.md, references/*.md (rules the agent reads)
+      //   .yaml— agents/openai.yaml (distilled invocation prompts)
+      // Skip:
+      //   .py  — scripts run by codex from its own ~/.codex/skills/, not
+      //          from .ogf/skills/. Vendoring would only confuse.
+      //   __pycache__ — compile cache, never useful in a project.
+      if (!/\.(md|yaml)$/.test(entry)) continue;
       const projectRel = ['.ogf', 'skills', ...relSegments, entry].join('/');
       out.push({ rel: projectRel, body: readFileSync(absChild, 'utf8') });
     }

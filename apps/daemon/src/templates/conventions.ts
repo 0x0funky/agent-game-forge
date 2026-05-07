@@ -30,8 +30,14 @@ OGF vendors the canonical skill rules into every project at
 
 …READ these files in this order:
 
-1. \`.ogf/skills/generate2dmap/SKILL.md\` (+ its \`references/*.md\`)
-2. \`.ogf/skills/generate2dsprite/SKILL.md\` (+ its \`references/*.md\`)
+1. \`.ogf/skills/generate2dmap/agents/openai.yaml\` — distilled
+   invocation prompt with the current defaults baked in
+   (\`stage_segment_count\`, \`platform_strategy\`, etc).
+2. \`.ogf/skills/generate2dmap/SKILL.md\` (+ its \`references/*.md\`)
+3. \`.ogf/skills/generate2dsprite/agents/openai.yaml\` — same role
+   for sprite generation (frame layout per action, body-only
+   attack rules, \`scale_strategy\` defaults).
+4. \`.ogf/skills/generate2dsprite/SKILL.md\` (+ its \`references/*.md\`)
 
 These contain the up-to-date rules for: side-scroll segment counts,
 platform strategies, parallax layer organization, prop pack vs strip
