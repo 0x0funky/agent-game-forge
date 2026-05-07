@@ -76,8 +76,22 @@ export function buildCodexArgs(
 
 export function spawnCodex(opts: CodexRunOptions): ChildProcess {
   const { bin, cwd, prompt, model, reasoning, resumeThreadId, env } = opts;
-  const args = buildCodexArgs(cwd, model, reasoning, resumeThreadId);
+  const rawArgs = buildCodexArgs(cwd, model, reasoning, resumeThreadId);
   const useShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(bin);
+
+  // Node's `shell: true` on Windows runs `cmd.exe /d /s /c "<args>"`
+  // and joins args with spaces AS-IS — it does NOT quote anything.
+  // Any arg containing whitespace (e.g. `-C D:\New project`) gets
+  // split by cmd into two args, which makes codex see malformed
+  // flags and fail. We quote here so the join → split round-trip
+  // preserves the original arg boundaries.
+  //
+  // Quoting rules used here:
+  //   - Wrap in double quotes if the arg contains whitespace, or is
+  //     empty.
+  //   - Escape internal double quotes (rare for our case but safe).
+  //   - Don't touch args that don't need it (keeps logs readable).
+  const args = useShell ? rawArgs.map(quoteForCmdShell) : rawArgs;
 
   const child = spawn(bin, args, {
     cwd,
@@ -92,6 +106,17 @@ export function spawnCodex(opts: CodexRunOptions): ChildProcess {
   }
 
   return child;
+}
+
+/** Quote a single arg for Windows `cmd.exe /c "..."` invocation
+ *  (which is what Node uses internally when `shell: true` on win32).
+ *  Args without whitespace pass through unchanged. */
+function quoteForCmdShell(arg: string): string {
+  if (arg === '') return '""';
+  if (!/[\s"]/.test(arg)) return arg;
+  // Escape internal double quotes by doubling them (cmd's convention
+  // when wrapped in quotes).
+  return '"' + arg.replace(/"/g, '""') + '"';
 }
 
 interface CodexJsonEvent {
