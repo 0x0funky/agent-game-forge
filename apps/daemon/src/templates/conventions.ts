@@ -20,6 +20,67 @@ exists for the parts that are easier to drag than to describe — moving an
 enemy spawn, retiming a wave, swapping a sprite. Everything else stays in
 chat with you.
 
+## MANDATORY: read these before writing the spec
+
+OGF vendors the canonical skill rules into every project at
+\`.ogf/skills/\`. Before any of this:
+- writing or editing \`.ogf/spec.md\`
+- planning visual structure (parallax layers, prop packs, frame counts)
+- invoking \`generate2dmap\` or \`generate2dsprite\`
+
+…READ these files in this order:
+
+1. \`.ogf/skills/generate2dmap/SKILL.md\` (+ its \`references/*.md\`)
+2. \`.ogf/skills/generate2dsprite/SKILL.md\` (+ its \`references/*.md\`)
+
+These contain the up-to-date rules for: side-scroll segment counts,
+platform strategies, parallax layer organization, prop pack vs strip
+vs tilemap, sprite frame layouts per action, anchor + collision
+extraction, magenta cleanup, QC validation. **OGF defers to them.**
+
+If something in these vendored skill files contradicts something
+written in this conventions file, **the skill files win**. This file
+is the OGF process; those files are the asset rules.
+
+## Spec authorship — describe WHAT, not HOW
+
+\`.ogf/spec.md\` is the GAME DESCRIPTION. It tells future phases what
+the game IS. It does NOT prescribe how visual assets get made — that
+emerges from the skill rules at invocation time.
+
+**Spec.md should describe:**
+- Identity: genre, art style, palette, references, premise
+- Player: id, moves, HP, animations BY NAME (idle / walk / attack)
+- Levels: id, camera mode (locked / scroll), map_kind for the skill
+- Enemies / pickups / hazards: id, role, animations BY NAME
+- Phase plan with VERIFY gates
+- Out of scope
+
+**Spec.md should NOT describe:**
+- Parallax layer count or layer names (sky / far_bg / mid_bg ...)
+- \`stage_segment_count\` for side-scroll levels
+- \`platform_strategy\` (platform_rects_with_shared_tiles vs other)
+- Prop pack format (3×3, 4×4, strip)
+- Sprite frame counts or grid (2×2, 2×4, etc.)
+- Specific \`frameW\` / \`frameH\` / \`fps\` values per animation
+
+These details get decided at \`generate2dmap\` / \`generate2dsprite\`
+invocation time. The skill picks the right values based on its
+own current rules. Spec.md prescribing them in advance LOCKS THEM
+IN at spec-write time and prevents skill upgrades from cascading.
+
+If the user explicitly requests a specific number ("I want 8-frame
+walk animation"), record it as an ADDITIONAL CONSTRAINT in spec
+section 2 ("Player config: walk frames: 8 (user-specified)") — but
+the structural decisions (segment count, platform strategy, prop
+pack format) still come from skill defaults unless user overrides.
+
+After each generation phase, the skill writes back metadata
+(\`pipeline-meta.json\` per pack, \`platform-pack.json\` per pack).
+You may briefly summarize what the skill chose in a "Decisions log"
+section of spec.md as an audit trail — but that is RECORD not
+PRESCRIPTION.
+
 This means:
 
 - **Disk is the contract.** Everything OGF needs to render or edit lives
@@ -121,9 +182,16 @@ both problems.
 ### Per-action sheet generation rule
 
 Every named animation = one separate \`generate2dsprite\` call. Player has 4
-animations → 4 calls (idle / walk / jump / attack each own 2x2 sheet).
-Spearman has 3 animations → 3 calls (idle / walk / attack each own 2x2).
-Archer has 2 animations → 2 calls (idle / attack each own 2x2).
+animations → 4 calls (idle / walk / jump / attack each own sheet).
+Spearman has 3 animations → 3 calls (idle / walk / attack).
+Archer has 2 animations → 2 calls (idle / attack).
+
+**Frame layout per call** is decided by the skill, NOT prescribed here
+or in spec.md. The skill picks rows × cols based on action type
+(idle ≈ 2x2, walk ≈ 2x3 or 2x4, attack ≈ 2x3, etc. — see the
+vendored \`.ogf/skills/generate2dsprite/SKILL.md\` for the current
+mapping). Don't pass a \`sheet\` parameter unless the user explicitly
+asked for a specific cell grid.
 
 **Phase budget impact**: 3 enemies × 2-3 anims each = 6-9 generate2dsprite
 calls. Fits in 1-2 phases (≤8 image_gen / phase). Bosses with 4+ anims

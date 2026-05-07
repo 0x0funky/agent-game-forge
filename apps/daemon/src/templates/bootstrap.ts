@@ -2,10 +2,47 @@
 // skeleton that follows the conventions doc. Codex's first turn fills
 // in the gameplay; OGF's editor stays useful from minute one.
 
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { EngineKind } from '@ogf/contracts';
 import { godotConventions, webConventions } from './conventions.js';
+
+// Skill MDs are vendored under templates/skills/. We copy them into every
+// new project's `.ogf/skills/` folder so the spec-writer agent reads them
+// AT spec authorship time (not just when invoking a skill mid-run).
+//
+// Owning the rules here means OGF's behavior is reproducible across
+// global ~/.codex/skills/ updates — a megaman-sango run today produces
+// the same shape as one tomorrow, regardless of upstream skill drift.
+// Re-vendor by re-running scripts/sync-skills (manual for now).
+const SKILLS_SRC_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  'skills',
+);
+
+/** Walk the vendored skills tree and produce ScaffoldFile entries
+ *  rooted at `.ogf/skills/`. Recursive so SKILL.md + references/* both
+ *  end up in the right shape under the project. */
+function vendoredSkillFiles(): ScaffoldFile[] {
+  if (!existsSync(SKILLS_SRC_DIR)) return [];
+  const out: ScaffoldFile[] = [];
+  const walk = (absDir: string, relSegments: string[]): void => {
+    for (const entry of readdirSync(absDir)) {
+      const absChild = path.join(absDir, entry);
+      const stat = statSync(absChild);
+      if (stat.isDirectory()) {
+        walk(absChild, [...relSegments, entry]);
+        continue;
+      }
+      if (!entry.endsWith('.md')) continue;
+      const projectRel = ['.ogf', 'skills', ...relSegments, entry].join('/');
+      out.push({ rel: projectRel, body: readFileSync(absChild, 'utf8') });
+    }
+  };
+  walk(SKILLS_SRC_DIR, []);
+  return out;
+}
 
 interface ScaffoldFile {
   rel: string;
@@ -100,6 +137,7 @@ function godotFiles(name: string, conventions: string): ScaffoldFile[] {
     { rel: 'scripts/Main.gd', body: GODOT_MAIN_GD },
     { rel: '.gitignore', body: GODOT_GITIGNORE },
     { rel: '.ogf/conventions.md', body: conventions },
+    ...vendoredSkillFiles(),
     { rel: 'data/.gitkeep', body: '' },
     { rel: 'assets/.gitkeep', body: '' },
   ];
@@ -368,6 +406,7 @@ function webFiles(name: string, conventions: string): ScaffoldFile[] {
     { rel: 'data/level1.json', body: WEB_LEVEL1_JSON },
     { rel: '.gitignore', body: WEB_GITIGNORE },
     { rel: '.ogf/conventions.md', body: conventions },
+    ...vendoredSkillFiles(),
     { rel: 'assets/maps/.gitkeep', body: '' },
     { rel: 'assets/sprites/.gitkeep', body: '' },
   ];
