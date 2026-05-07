@@ -3282,6 +3282,79 @@ function sectionTint(section: string | undefined): string | null {
   return `hsl(${h % 360}, 65%, 65%)`;
 }
 
+/** Draw a three-piece platform: left-cap + tiled middle + right-cap.
+ *  Pieces are scaled to platform.h. The middle is repeated horizontally
+ *  every `tileW` (or scaled-mid-width) px to fill the gap between caps.
+ *  No stretch — natural aspect ratio of each piece preserved. */
+function drawThreePiecePlatform(
+  ctx: CanvasRenderingContext2D,
+  r: { x: number; y: number; w: number; h: number },
+  pieces: NonNullable<SceneProp['tilePieces']>,
+  bank: ImageBank,
+) {
+  const left = pieces.left ? bank.imgs.get(pieces.left.image) ?? null : null;
+  const mid = bank.imgs.get(pieces.mid.image) ?? null;
+  const right = pieces.right ? bank.imgs.get(pieces.right.image) ?? null : null;
+  if (!mid) {
+    ctx.fillStyle = 'rgba(255, 80, 80, 0.3)';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    return;
+  }
+  // Scale each piece's WIDTH proportionally to its natural so the cap
+  // doesn't get squashed. All pieces draw at platform.h.
+  const targetH = r.h;
+  const leftW = left ? (left.width / left.height) * targetH : 0;
+  const rightW = right ? (right.width / right.height) * targetH : 0;
+  const midNaturalW = mid.width;
+  const midNaturalH = mid.height;
+  // Mid tile width — honor library's tileW if set, else scale by height.
+  const midDrawW = pieces.mid.tileW
+    ? (pieces.mid.tileW / midNaturalH) * targetH
+    : (midNaturalW / midNaturalH) * targetH;
+
+  if (left) ctx.drawImage(left, r.x, r.y, leftW, targetH);
+  let cursor = r.x + leftW;
+  const midEnd = r.x + r.w - rightW;
+  while (cursor < midEnd - 0.5) {
+    const drawW = Math.min(midDrawW, midEnd - cursor);
+    // Source-clip mid when the last tile overflows so we don't squash.
+    const srcW = (drawW / midDrawW) * midNaturalW;
+    ctx.drawImage(mid, 0, 0, srcW, midNaturalH, cursor, r.y, drawW, targetH);
+    cursor += drawW;
+  }
+  if (right) ctx.drawImage(right, midEnd, r.y, rightW, targetH);
+}
+
+/** Draw a tile-mode platform: just the mid piece, repeated horizontally
+ *  to fill platform.w. No edge caps. */
+function drawTiledPlatform(
+  ctx: CanvasRenderingContext2D,
+  r: { x: number; y: number; w: number; h: number },
+  pieces: NonNullable<SceneProp['tilePieces']>,
+  bank: ImageBank,
+) {
+  const mid = bank.imgs.get(pieces.mid.image) ?? null;
+  if (!mid) {
+    ctx.fillStyle = 'rgba(255, 80, 80, 0.3)';
+    ctx.fillRect(r.x, r.y, r.w, r.h);
+    return;
+  }
+  const targetH = r.h;
+  const midNaturalW = mid.width;
+  const midNaturalH = mid.height;
+  const midDrawW = pieces.mid.tileW
+    ? (pieces.mid.tileW / midNaturalH) * targetH
+    : (midNaturalW / midNaturalH) * targetH;
+  let cursor = r.x;
+  const end = r.x + r.w;
+  while (cursor < end - 0.5) {
+    const drawW = Math.min(midDrawW, end - cursor);
+    const srcW = (drawW / midDrawW) * midNaturalW;
+    ctx.drawImage(mid, 0, 0, srcW, midNaturalH, cursor, r.y, drawW, targetH);
+    cursor += drawW;
+  }
+}
+
 function drawProp(
   ctx: CanvasRenderingContext2D,
   p: SceneProp,
@@ -3291,12 +3364,22 @@ function drawProp(
 ) {
   const r = propBounds(p, bank);
   if (!r) return;
-  const img = p.texture ? bank.imgs.get(p.texture) : null;
-  if (img) {
-    ctx.drawImage(img, r.x, r.y, r.w, r.h);
+
+  // Schema v2: tile / three-piece render branches use the resolved
+  // tilePieces from the loader. Falls through to the legacy texture-
+  // stretch path when renderMode is 'natural' or undefined.
+  if (p.renderMode === 'three-piece' && p.tilePieces) {
+    drawThreePiecePlatform(ctx, r, p.tilePieces, bank);
+  } else if (p.renderMode === 'tile' && p.tilePieces) {
+    drawTiledPlatform(ctx, r, p.tilePieces, bank);
   } else {
-    ctx.fillStyle = 'rgba(255, 80, 80, 0.3)';
-    ctx.fillRect(r.x, r.y, r.w, r.h);
+    const img = p.texture ? bank.imgs.get(p.texture) : null;
+    if (img) {
+      ctx.drawImage(img, r.x, r.y, r.w, r.h);
+    } else {
+      ctx.fillStyle = 'rgba(255, 80, 80, 0.3)';
+      ctx.fillRect(r.x, r.y, r.w, r.h);
+    }
   }
 
   // Section tint: thin colored border + tiny label tab in the top-left so the

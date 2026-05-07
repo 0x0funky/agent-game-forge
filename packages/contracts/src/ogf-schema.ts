@@ -71,7 +71,20 @@ export interface SingleBackground {
  *  Layers render back-to-front by `zIndex`. */
 export interface ParallaxLayer {
   id: string;
-  image: string;
+  /** Required when tileMode is undefined / 'static' / 'loop'. */
+  image?: string;
+  /** Required when tileMode is 'segments'. Each entry is camera-width-sized
+   *  and laid out left-to-right. */
+  segmentImages?: string[];
+  /** How the layer fills horizontal extent:
+   *   'static'   — single image at (0,0), no tiling. Default for backwards
+   *                compat with v1.
+   *   'loop'     — single small image, repeated horizontally with modulo
+   *                wrap. Use for sky / clouds / distant horizon where the
+   *                image is tileable seamlessly.
+   *   'segments' — N camera-width images stitched left-to-right. Use for
+   *                mid/near layers with unique terrain per camera-width. */
+  tileMode?: 'static' | 'loop' | 'segments';
   /** 0 = static (sky), 1 = locked to camera. Typical: 0.1..0.95. */
   parallax: number;
   zIndex: number;
@@ -82,15 +95,56 @@ export interface ParallaxLayer {
 
 // ─── Platforms (platformer) ─────────────────────────────────────────
 
-/** Visual + collision for solid surfaces. `solid:true` means a wall;
- *  `oneWay:true` means jump-through-from-below. */
+/** A single tileable / three-piece platform asset, referenced by id from
+ *  PlatformSpec.tile when renderMode = 'tile' | 'three-piece'. Keys live
+ *  in OgfLevel.shared_platform_library. */
+export interface PlatformLibraryEntry {
+  /** Three-piece composition. left + right are caps with edge ornaments;
+   *  mid is the seamlessly-tileable middle section. Required when any
+   *  PlatformSpec referencing this entry uses renderMode = 'three-piece'.
+   *  When referenced from renderMode = 'tile', only `mid` is needed. */
+  left?: { image: string; naturalW?: number; naturalH?: number };
+  mid: {
+    image: string;
+    naturalW?: number;
+    naturalH?: number;
+    /** Pixel width of one tile repeat (typically equals natural width).
+     *  Renderer loops mid every `tileW` px to fill the platform width. */
+    tileW?: number;
+    /** Pixel height of one tile (informational; render uses platform.h). */
+    tileH?: number;
+  };
+  right?: { image: string; naturalW?: number; naturalH?: number };
+}
+
+/** Visual + collision for solid surfaces.
+ *
+ *  Three render modes:
+ *  - `tile`        — repeat library.mid horizontally every tileW px
+ *                    across platform.w. No edge caps. Inline `image`
+ *                    field is allowed as a single-prop fallback if
+ *                    no `tile` reference is provided.
+ *  - `three-piece` — library.left cap + library.mid loop + library.right cap.
+ *                    Requires the library entry to have all three pieces.
+ *                    Best for ornamented platforms that need to scale.
+ *  - `natural`     — single image at its natural size. platform.w/h MUST
+ *                    equal image.naturalW/H — never stretch. Used for
+ *                    one-off set-piece platforms (boss arena floor etc).
+ *
+ *  `oneWay:true` means jump-through-from-below.
+ *  `solid` is OBSOLETE — colliders[] is the source of truth for collision. */
 export interface PlatformSpec extends RectXY {
   id: string;
-  /** Catalog ref (kind name, NOT a free-form prop). */
+  /** Catalog ref / display label. */
   kind: string;
-  /** Sprite sheet path. */
-  image: string;
-  solid: boolean;
+  /** Render strategy. Defaults to 'natural' for v1 backwards compat. */
+  renderMode?: 'tile' | 'three-piece' | 'natural';
+  /** Reference into shared_platform_library when renderMode = 'tile'
+   *  or 'three-piece'. */
+  tile?: string;
+  /** Single sprite sheet path when renderMode = 'natural'. */
+  image?: string;
+  solid?: boolean;
   oneWay?: boolean;
 }
 
@@ -239,6 +293,13 @@ export interface OgfLevel {
   background?: SingleBackground;
   /** Parallax stack (follow camera). Mutually exclusive with `background`. */
   layers?: ParallaxLayer[];
+
+  // ── shared assets ──
+  /** Reusable platform tile / strip definitions, keyed by id.
+   *  PlatformSpec.tile entries reference these. Use to share one tile
+   *  art set across many platforms (Megaman-style: one stone tile,
+   *  used by every ground/ledge/wall in the level). */
+  shared_platform_library?: Record<string, PlatformLibraryEntry>;
 
   // ── geometry ──
   /** Platformer: visual+collision platform tiles. */

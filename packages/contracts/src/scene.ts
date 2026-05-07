@@ -73,6 +73,22 @@ export interface SceneProp {
   /** When set, write-back goes through this ref instead of the default
    *  Godot .tscn nodePath path. Used for web JSON-backed props. */
   ref?: ColliderRef;
+  /** Render strategy for tile / three-piece platforms (Schema v2).
+   *  When set, the SceneEditor renders this prop using the matching
+   *  branch instead of the default `texture`-stretch-to-fit:
+   *    'tile'        — repeat tilePieces.mid every tilePieces.mid.tileW px
+   *    'three-piece' — tilePieces.left + mid loop + tilePieces.right
+   *    'natural'     — fall through to texture, expect w/h match
+   *  Loader sets this when the underlying JSON entry has tile + library
+   *  resolves. Undefined → default texture-stretch behavior. */
+  renderMode?: 'tile' | 'three-piece' | 'natural';
+  /** Resolved library pieces for tile/three-piece render modes.
+   *  Loader populates by looking up shared_platform_library[platform.tile]. */
+  tilePieces?: {
+    left?: { image: string; naturalW?: number; naturalH?: number };
+    mid: { image: string; naturalW?: number; naturalH?: number; tileW?: number; tileH?: number };
+    right?: { image: string; naturalW?: number; naturalH?: number };
+  };
 }
 
 export type ColliderShape =

@@ -282,34 +282,68 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
     if (editable.length === 0) continue;
     if (editable.length * 2 < arr.length) continue;
 
-    // Resolve `tile` reference against shared_platform_library (added in
-    // genre conventions for side-scroll). Each platform in three-piece /
-    // tile mode references a library key instead of carrying its own image
-    // — fall back to the library's `mid` image so the editor at least
-    // shows a recognizable texture (still stretches w/h for now; proper
-    // three-piece composition arrives in Schema v2 + renderer upgrade).
+    // Resolve `tile` reference against shared_platform_library (Schema v2).
+    // Schema v2 adds first-class library entries (PlatformLibraryEntry).
+    // Loader resolves the entry here so the SceneEditor renderer can do
+    // proper three-piece composition (cap-L + tile-loop + cap-R) instead
+    // of stretching a single image to fit. Falls back to `image` if the
+    // platform doesn't reference a library entry.
+    type LibPiece = { image?: string; naturalW?: number; naturalH?: number; tileW?: number; tileH?: number };
+    type LibEntry = { left?: LibPiece; mid?: LibPiece; right?: LibPiece };
     const library =
       data.shared_platform_library && typeof data.shared_platform_library === 'object'
-        ? (data.shared_platform_library as Record<string, {
-            left?: { image?: string };
-            mid?: { image?: string };
-            right?: { image?: string };
-          }>)
+        ? (data.shared_platform_library as Record<string, LibEntry>)
         : null;
-    function resolveTileImage(tileKey: unknown): string | null {
+
+    function resolveLibraryEntry(tileKey: unknown): LibEntry | null {
       if (typeof tileKey !== 'string' || !library) return null;
-      const entry = library[tileKey];
-      return (entry?.mid?.image as string) ?? (entry?.left?.image as string) ?? null;
+      return library[tileKey] ?? null;
+    }
+    function buildTilePieces(entry: LibEntry | null) {
+      if (!entry?.mid?.image) return undefined;
+      const piece = (p: LibPiece | undefined) =>
+        p?.image
+          ? { image: p.image, naturalW: p.naturalW, naturalH: p.naturalH }
+          : undefined;
+      return {
+        left: piece(entry.left),
+        mid: {
+          image: entry.mid.image,
+          naturalW: entry.mid.naturalW,
+          naturalH: entry.mid.naturalH,
+          tileW: entry.mid.tileW,
+          tileH: entry.mid.tileH,
+        },
+        right: piece(entry.right),
+      };
     }
 
     editable.forEach((p, idx) => {
       const direct = typeof p.image === 'string' ? p.image : null;
-      const fromLibrary = direct ? null : resolveTileImage((p as { tile?: unknown }).tile);
-      const image = direct ?? fromLibrary;
+      const tileKey = (p as { tile?: unknown }).tile;
+      const libEntry = direct ? null : resolveLibraryEntry(tileKey);
+      const tilePieces = buildTilePieces(libEntry);
+      // For renderMode: prefer the JSON-declared one; infer from tile usage
+      // if the agent forgot to set it (treat tile + library as 'three-piece'
+      // when caps exist, else 'tile').
+      const declaredMode = (p as { renderMode?: string }).renderMode;
+      const renderMode: 'tile' | 'three-piece' | 'natural' | undefined =
+        declaredMode === 'tile' || declaredMode === 'three-piece' || declaredMode === 'natural'
+          ? declaredMode
+          : tilePieces
+            ? tilePieces.left && tilePieces.right
+              ? 'three-piece'
+              : 'tile'
+            : undefined;
+      // Texture is the renderer's primary image — use the entry's mid as a
+      // safe fallback so existing single-img branches still draw something.
+      const image = direct ?? tilePieces?.mid.image ?? null;
       const w = Number(p.w);
       const h = Number(p.h);
       const id = String(p.id ?? `${section}_${idx}`);
       if (image) referenced.add(image);
+      if (tilePieces?.left?.image) referenced.add(tilePieces.left.image);
+      if (tilePieces?.right?.image) referenced.add(tilePieces.right.image);
       // Tag with the kind (when present) so the SceneEditor can show a
       // label on the outlined rect when there's no sprite.
       const meta: Record<string, string> = {};
@@ -326,6 +360,8 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
         metadata: meta,
         displaySize: { x: w, y: h },
         ref: { backend: 'json', relPath, section, id },
+        renderMode,
+        tilePieces,
       });
     });
   }
