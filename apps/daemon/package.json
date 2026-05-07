@@ -6,7 +6,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json && node ./scripts/copy-skills.mjs",
+    "build": "tsc -p tsconfig.json && node ./scripts/copy-templates.mjs",
     "start": "node dist/index.js"
   },
   "dependencies": {

@@ -63,6 +63,41 @@ function vendoredSkillFiles(): ScaffoldFile[] {
   return out;
 }
 
+// ── Vendored convention files ─────────────────────────────────────
+//
+// We split the old monolithic conventions.ts (~1700 lines) into
+// genre-aware .md files. Bootstrap copies ALL of them into every
+// project — agent reads only `common.md` + `runtime-patterns.md` +
+// the genre file matching the project's chosen genre. Cross-genre
+// pollution avoided; long sessions don't waste context on rules
+// for the wrong genre.
+const CONVENTIONS_SRC_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  'conventions',
+);
+
+/** Walk vendored conventions/ tree and produce ScaffoldFile entries
+ *  rooted at `.ogf/conventions/`. */
+function vendoredConventionFiles(): ScaffoldFile[] {
+  if (!existsSync(CONVENTIONS_SRC_DIR)) return [];
+  const out: ScaffoldFile[] = [];
+  const walk = (absDir: string, relSegments: string[]): void => {
+    for (const entry of readdirSync(absDir)) {
+      const absChild = path.join(absDir, entry);
+      const stat = statSync(absChild);
+      if (stat.isDirectory()) {
+        walk(absChild, [...relSegments, entry]);
+        continue;
+      }
+      if (!entry.endsWith('.md')) continue;
+      const projectRel = ['.ogf', 'conventions', ...relSegments, entry].join('/');
+      out.push({ rel: projectRel, body: readFileSync(absChild, 'utf8') });
+    }
+  };
+  walk(CONVENTIONS_SRC_DIR, []);
+  return out;
+}
+
 interface ScaffoldFile {
   rel: string;
   body: string;
@@ -155,7 +190,14 @@ function godotFiles(name: string, conventions: string): ScaffoldFile[] {
     { rel: 'scenes/Main.tscn', body: GODOT_MAIN_TSCN },
     { rel: 'scripts/Main.gd', body: GODOT_MAIN_GD },
     { rel: '.gitignore', body: GODOT_GITIGNORE },
+    // .ogf/conventions.md kept as a thin index that points the agent at
+    // the new genre-aware structure under .ogf/conventions/. The big
+    // monolithic conventions.ts was split into common.md + runtime-
+    // patterns.md + genres/<name>.md so each project loads only what's
+    // relevant to its genre. The `conventions` string passed in is now
+    // a short pointer/legacy shim, NOT the authoritative content.
     { rel: '.ogf/conventions.md', body: conventions },
+    ...vendoredConventionFiles(),
     ...vendoredSkillFiles(),
     { rel: 'data/.gitkeep', body: '' },
     { rel: 'assets/.gitkeep', body: '' },
@@ -424,7 +466,14 @@ function webFiles(name: string, conventions: string): ScaffoldFile[] {
     { rel: 'data/levels.json', body: WEB_LEVELS_JSON },
     { rel: 'data/level1.json', body: WEB_LEVEL1_JSON },
     { rel: '.gitignore', body: WEB_GITIGNORE },
+    // .ogf/conventions.md kept as a thin index that points the agent at
+    // the new genre-aware structure under .ogf/conventions/. The big
+    // monolithic conventions.ts was split into common.md + runtime-
+    // patterns.md + genres/<name>.md so each project loads only what's
+    // relevant to its genre. The `conventions` string passed in is now
+    // a short pointer/legacy shim, NOT the authoritative content.
     { rel: '.ogf/conventions.md', body: conventions },
+    ...vendoredConventionFiles(),
     ...vendoredSkillFiles(),
     { rel: 'assets/maps/.gitkeep', body: '' },
     { rel: 'assets/sprites/.gitkeep', body: '' },
