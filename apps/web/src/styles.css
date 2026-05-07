@@ -2252,6 +2252,28 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
   justify-content: flex-end;
 }
 
+/* Two-line modal head: title on top, sub-path below. Avoids the
+ * regression where a long title + long path both flexed and the title
+ * wrapped to 3 lines on the narrow regenerate modal. Both lines now
+ * truncate with ellipsis — the full path is in a tooltip. */
+.modal-head .modal-head-stack {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 1px;
+  line-height: 1.25;
+}
+.modal-head .modal-head-stack .title,
+.modal-head .modal-head-stack .sub {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.modal-head .close { flex-shrink: 0; }
+
 /* Regenerate options form. Single-column rows: label | control. */
 .regen-form {
   display: flex;

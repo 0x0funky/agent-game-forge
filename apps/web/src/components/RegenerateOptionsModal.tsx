@@ -271,13 +271,15 @@ export function RegenerateOptionsModal(props: Props) {
     <div className="modal-scrim" onClick={props.onCancel}>
       <div className="modal modal-narrow" onClick={(e) => e.stopPropagation()}>
         <div className="modal-head">
-          <span style={{ color: 'var(--accent)' }}>{I.refresh}</span>
-          <span className="title">
-            {packCtx.isPack ? `Regenerate ${packLabel}` : 'Regenerate sprite'}
-          </span>
-          <span className="sub">
-            {packCtx.isPack ? packCtx.packDir : props.relPath}
-          </span>
+          <span style={{ color: 'var(--accent)', flexShrink: 0 }}>{I.refresh}</span>
+          <div className="modal-head-stack">
+            <span className="title">
+              {packCtx.isPack ? `Regenerate ${packLabel}` : 'Regenerate sprite'}
+            </span>
+            <span className="sub" title={packCtx.isPack ? packCtx.packDir ?? '' : props.relPath}>
+              {packCtx.isPack ? packCtx.packDir : props.relPath}
+            </span>
+          </div>
           <button className="close" onClick={props.onCancel}>{I.close}</button>
         </div>
 
