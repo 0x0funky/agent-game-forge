@@ -122,15 +122,18 @@ ONE moment where structural visual decisions get captured — without
 it, the agent falls back to LLM priors (defaults to 4-frame walks,
 single-image platforms, etc.) and broken patterns reappear.
 
-The form's \`fields\` array MUST include at least these three keys.
-Add other fields (genre, palette, etc.) as needed:
+The form's \`fields\` array MUST include at least \`animation_richness\`.
+This is the ONE visual decision that's a real user-aesthetic choice
+("how smooth do you want the animation?") — everyone else's
+"correct" answer is structural / engineering and OGF picks the
+right default. Don't bother the user with engineering picks.
 
 \`\`\`json
 {
   "id": "discovery",
   "title": "Project setup",
   "fields": [
-    /* … your other discovery questions … */
+    /* … your other discovery questions (genre, palette, etc.) … */
     {
       "key": "animation_richness",
       "label": "How smooth should character animations be?",
@@ -141,54 +144,31 @@ Add other fields (genre, palette, etc.) as needed:
         { "value": "standard", "label": "Standard", "detail": "skill picks per-action: idle 2×2, walk 2×3-2×4, attack 2×3" },
         { "value": "rich",     "label": "Rich",     "detail": "bigger grids: walk 2×4-2×6, attack 2×4, death 2×4 — slowest gen" }
       ]
-    },
-    {
-      "key": "platform_visual_strategy",
-      "label": "How should platforms be drawn?",
-      "type": "radio",
-      "default": "tile_library",
-      "options": [
-        {
-          "value": "tile_library",
-          "label": "Tile library (recommended)",
-          "detail": "small repeating tile (32-128px) shared across all platforms; supports any width without distortion"
-        },
-        {
-          "value": "three_piece",
-          "label": "Three-piece",
-          "detail": "left-cap + middle tile + right-cap; good for ornamented platforms that need to scale"
-        },
-        {
-          "value": "set_pieces",
-          "label": "Set pieces",
-          "detail": "each platform is its own image at NATURAL size; level platform.w/h MUST match image dims; one image per variant"
-        }
-      ]
-    },
-    {
-      "key": "stage_segment_count",
-      "label": "How wide is the main stage?",
-      "type": "radio",
-      "default": "2",
-      "options": [
-        { "value": "1", "label": "1 segment",  "detail": "single screen — boss room, arena, fixed background" },
-        { "value": "2", "label": "2 segments", "detail": "standard playable level (~2 viewport widths)" },
-        { "value": "3", "label": "3 segments", "detail": "longer level" }
-      ]
     }
   ]
 }
 \`\`\`
 
-After submission, write the answers into spec.md §1 Identity as
-**Visual decisions** lines:
+DO NOT add \`platform_visual_strategy\` or \`stage_segment_count\` as
+form fields — those are engineering decisions, not user preferences:
+- **platform_visual_strategy**: always default to \`tile_library\`. Only
+  override if the user explicitly says "I want set-piece platforms"
+  in chat. The user does NOT think about left-cap vs middle-tile;
+  they think about "good-looking platforms".
+- **stage_segment_count**: derive from the level's camera mode in
+  spec.md. \`camera.mode = locked\` ⇒ 1 segment. \`camera.mode = scroll\`
+  ⇒ 2 segments. Override only if the user says "I want a really long
+  level" in chat.
+
+After form submission, write the answer into spec.md §1 Identity as
+a **Visual decisions** line, including the engineering defaults so
+all phases see the canonical record:
 
 \`\`\`
-- **Visual decisions**: animation_richness=standard, platform_visual_strategy=tile_library, stage_segment_count=2
+- **Visual decisions**: animation_richness=<user-chosen>, platform_visual_strategy=tile_library, stage_segment_count=<derived from camera mode>
 \`\`\`
 
-These three lines are the canonical record. Every subsequent phase
-reads them and must follow.
+This line is the canonical record subsequent phases read.
 
 ## Visual strategy preferences
 
