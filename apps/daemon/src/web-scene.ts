@@ -248,9 +248,33 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
   // Sengoku-Era convention (and our Web standard): each prop's (x, y) is the
   // BOTTOM-CENTER anchor — y is the ground line. w / h are fixed display
   // pixel dimensions, independent of the texture's natural size.
+  //
+  // Image field accepted under multiple aliases (image / sprite / path /
+  // src / texture, plus { sprite: { path } } object form) so refactored
+  // projects with different naming conventions still render. Same alias
+  // logic as background parser above + auto-detected arrays below — kept
+  // inline because each parser had its own `if (!image) continue` guard
+  // and lifting to a shared helper requires threading.
+  function propImagePath(entry: RectLike): string | null {
+    const trim = (s: string) => s.replace(/^\.?\//, '');
+    for (const key of ['image', 'sprite', 'path', 'src', 'texture'] as const) {
+      const v = (entry as Record<string, unknown>)[key];
+      if (typeof v === 'string') return trim(v);
+    }
+    for (const key of ['image', 'sprite'] as const) {
+      const v = (entry as Record<string, unknown>)[key];
+      if (v && typeof v === 'object') {
+        const obj = v as Record<string, unknown>;
+        if (typeof obj.path === 'string') return trim(obj.path);
+        if (typeof obj.image === 'string') return trim(obj.image);
+      }
+    }
+    return null;
+  }
+
   const rawProps = Array.isArray(data.props) ? (data.props as RectLike[]) : [];
   for (const p of rawProps) {
-    const image = typeof p.image === 'string' ? p.image : null;
+    const image = propImagePath(p);
     if (!image) continue;
     const id = String(p.id ?? `prop_${counter++}`);
     const x = Number(p.x ?? 0);
