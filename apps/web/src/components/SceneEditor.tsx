@@ -381,7 +381,26 @@ export function SceneEditor(props: Props) {
           : null) ??
         bank.sizes.get(scene.background.relPath) ??
         null;
-      if (img && size) {
+      if (img && size && scene.background.source === 'tile') {
+        // Tile-mode background (arena-survivor / Vampire Survivors style).
+        // Repeat the small tile across the full mapSize so the editor
+        // shows the same floor texture the runtime tiles. Modulo wrap
+        // built in via the createPattern API.
+        const tileW = scene.background.tileW ?? img.width;
+        const tileH = scene.background.tileH ?? img.height;
+        const pattern = ctx.createPattern(img, 'repeat');
+        if (pattern) {
+          // Apply scale so the tile draws at requested tileW × tileH.
+          const matrix = new DOMMatrix();
+          matrix.scaleSelf(tileW / img.width, tileH / img.height);
+          pattern.setTransform(matrix);
+          ctx.fillStyle = pattern;
+          ctx.fillRect(0, 0, size.w, size.h);
+        } else {
+          // Fallback: draw once if pattern creation failed.
+          ctx.drawImage(img, 0, 0, tileW, tileH);
+        }
+      } else if (img && size) {
         ctx.drawImage(img, 0, 0, size.w, size.h);
         if (scene.background.source === 'tilemap-preview') {
           // Slight tint to remind user it's a non-editable preview

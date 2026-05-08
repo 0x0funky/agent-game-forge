@@ -16,8 +16,15 @@ export interface SceneBackground {
   /** "image" = a baked Sprite2D (kindomrush style) or auto-detected layered-preview.
    *  "tilemap" = TileMapLayer source — Phase 5 will render it natively.
    *              For Phase 1 we still send a preview image when one is found.
+   *  "tile" = small repeating tile (arena-survivor pattern). Renderer tiles
+   *           horizontally + vertically across the level's mapSize using
+   *           tileW/tileH, modulo wrap.
    */
-  source: 'image' | 'tilemap-preview' | 'placeholder';
+  source: 'image' | 'tilemap-preview' | 'placeholder' | 'tile';
+  /** Pixel width of one tile repeat (when source = 'tile'). */
+  tileW?: number;
+  /** Pixel height of one tile repeat (when source = 'tile'). */
+  tileH?: number;
 }
 
 /** One visual layer in a multi-layer scene. Used by side-scrollers with

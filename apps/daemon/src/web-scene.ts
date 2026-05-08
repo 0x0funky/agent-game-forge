@@ -158,12 +158,32 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
     background = { relPath: bgRel, source: 'image', width: mapW, height: mapH };
     referenced.add(bgRel);
   } else {
-    // Some games store background as { image: "..." } object.
-    const bgObj = (data.background as { image?: unknown } | null) ?? null;
+    // background is an object — could be either:
+    //   { image: "..." }                 — single backdrop (TD / arena locked)
+    //   { tile: "...", tileW, tileH }    — repeated tile (arena-survivor /
+    //                                       Vampire Survivors infinite floor)
+    // arena-survivor.md genre guide writes the tile shape; without this
+    // recognition, the loader saw a non-string `background` and emitted
+    // "no background" warning, leaving Scene tab visually empty.
+    const bgObj =
+      (data.background as { image?: unknown; tile?: unknown; tileW?: unknown; tileH?: unknown } | null) ?? null;
     const bgImg = typeof bgObj?.image === 'string' ? bgObj.image.replace(/^\.?\//, '') : '';
+    const bgTile = typeof bgObj?.tile === 'string' ? bgObj.tile.replace(/^\.?\//, '') : '';
     if (bgImg) {
       background = { relPath: bgImg, source: 'image', width: mapW, height: mapH };
       referenced.add(bgImg);
+    } else if (bgTile) {
+      const tileW = typeof bgObj?.tileW === 'number' ? (bgObj.tileW as number) : undefined;
+      const tileH = typeof bgObj?.tileH === 'number' ? (bgObj.tileH as number) : undefined;
+      background = {
+        relPath: bgTile,
+        source: 'tile',
+        width: mapW,
+        height: mapH,
+        tileW,
+        tileH,
+      };
+      referenced.add(bgTile);
     }
   }
 
