@@ -90,6 +90,27 @@ The base/background/foundation layer must not contain runtime-controlled objects
 
 If a generated base/background already contains those runtime objects, do not use it as the runtime base. Regenerate a cleaner foundation-only base or demote that image to a concept/reference artifact. The next in-world reference mockup is where proposed objects may appear, and the final runtime must still use separate generated props, platform objects, object layers, tile layers, collision, zones, and scene-hook metadata as appropriate.
 
+## Base/Foundation prompt — MANDATORY exclusion clause
+
+> ⚠️ Recurring failure: agents read the spec's level description ("village with shrine gate, trainer house, wild-spirit grass, dojo entrance"), copy the whole sentence into the base prompt, and the model dutifully renders shrines + houses + dojos + grass into the BASE — defeating the entire 3-step pipeline. The reference step then produces a near-identical image because there is nothing left to add.
+
+Every base/foundation prompt for a playable map (top-down RPG base, scene_mode base, side_scroll background plate, tile_mode foundation tiles) MUST include this exclusion clause **verbatim** at the end of the prompt:
+
+> EXCLUSION CLAUSE — Foundation-only terrain. The output must contain ONLY ground materials (paths, grass, water, cliffs, sand, stone floor, dirt, snow, tatami flooring, wooden floor, etc.). NO buildings, NO houses, NO shrines, NO dojos, NO temples, NO gates, NO doors, NO fences, NO walls (except natural terrain edges like cliff faces), NO lanterns, NO banners, NO altars, NO statues, NO trees (texture only, not standalone tree props), NO bushes, NO crates, NO signs, NO weapon racks, NO furniture, NO interior fixtures, NO NPCs, NO characters, NO actors, NO pickups, NO chests, NO movable objects of any kind. If the scene requires those, they are added later in the reference step — leave their footprint as empty terrain (e.g. an empty paved courtyard where a dojo will be placed; an empty grass clearing where a shrine will be placed).
+
+Before sending the prompt, scan it for these words:
+**building / house / shrine / dojo / temple / gate / door / fence / wall / lantern / banner / altar / statue / tree / bush / crate / sign / weapon rack / table / chair / npc / character**.
+
+If any appear in your prompt's *positive description* (not inside the EXCLUSION CLAUSE), STOP. Move them to a separate "props to place in reference step" list and rewrite the base prompt with empty-footprint phrasing ("paved courtyard area", "open clearing", "stone plaza").
+
+### Verification after base generation
+
+If after generation the base image visibly contains buildings or props the runtime should control: **regenerate**. Do not proceed to the reference step on a contaminated base — the reference step cannot un-add what is baked into the base, and it will produce a near-duplicate.
+
+### Verification after reference generation
+
+The reference image MUST be visually distinct from the base (it should have all the props composited on top). Quick check: byte-compare base.png and reference.png. If identical: the reference step was skipped or no-op'd. Redo the reference step with `view_image base.png` + an explicit "ADD the following props on top of the loaded base: [prop list with positions]" prompt.
+
 ## Parameter Contract
 
 User-facing parameters may be stated in natural language:

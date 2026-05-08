@@ -43,6 +43,32 @@ The biggest failure mode for image-bg RPGs: agent generates props in isolation �
 
 Each phase is **two tool_uses in the same message** — `view_image` first, then the skill call. See `common.md` "Visual consistency" for why text-only references don't work.
 
+### Phase 2 pre-step — split terrain from props
+
+Before writing the Phase 2 prompt, list every visible element of the scene in TWO separate buckets. The spec's level description ("village with shrine gate, trainer house, wild-spirit grass, dojo entrance") **cannot be copied into the base prompt as-is** — split it first:
+
+```
+Scene: spirit_village_main
+  TERRAIN (goes into Phase 2 base prompt):
+    - dirt paths
+    - grass
+    - stream + water
+    - sandy plaza area
+    - stone-paved courtyard area (where dojo will go — leave empty)
+    - mossy rocks (terrain texture)
+  PROPS (goes into Phase 3 reference prompt, NOT phase 2):
+    - shrine gate (torii) at top
+    - trainer house at left
+    - dojo building at right (on the empty paved courtyard)
+    - elder NPC near save shrine
+    - save shrine at bottom-right
+    - wooden fence around perimeter
+    - lanterns along path
+    - cherry blossom trees
+```
+
+If a "scene element" is a structure / building / object the player can see and the runtime should treat as a prop (collision, y-sort, occlusion, replacement) — it goes in PROPS. If it's just ground material — TERRAIN.
+
 ```
 Phase 2 — BASE MAP (terrain only, no props):
   tool_use 1: view_image .ogf/style-anchor.png
@@ -50,27 +76,69 @@ Phase 2 — BASE MAP (terrain only, no props):
               - map_mode='scene_mode'
               - asset_type='base_map'
               - reference: 'generated_image'
-              - prompt: "Use the loaded image as a STYLE reference.
-                         Match palette, line weight, overall
-                         aesthetic. The new asset is unrelated to
-                         the figure shown — only rendering style
-                         must match. Subject: <scene_id> outdoor
-                         base map, foundation-only terrain (paths,
-                         water, cliffs, grass), NO buildings, NO
-                         movable objects, top-down view."
+              - prompt: "[STYLE block from spec verbatim]
+                         [VIEW + WORLD SCALE from spec verbatim]
+                         [MAP PALETTE from spec verbatim]
+                         Use the loaded image as a STYLE reference;
+                         the new asset is unrelated to the figure
+                         shown.
+                         Subject: <scene_id> base map.
+                         Terrain features: <ONLY terrain bucket
+                           items from pre-step — paths, grass, water,
+                           courtyard area, paved plaza, etc.>
+                         EXCLUSION CLAUSE — Foundation-only terrain.
+                         The output must contain ONLY ground
+                         materials. NO buildings, NO houses, NO
+                         shrines, NO dojos, NO temples, NO gates,
+                         NO doors, NO fences, NO walls (except
+                         natural cliff edges), NO lanterns, NO
+                         banners, NO altars, NO statues, NO
+                         standalone trees, NO bushes, NO crates,
+                         NO signs, NO furniture, NO interior
+                         fixtures (weapon racks, tatami mats are
+                         floor texture only NOT racks/altars), NO
+                         NPCs, NO characters, NO movable objects.
+                         Where structures will be added later, leave
+                         empty terrain (e.g. empty paved courtyard,
+                         empty grass clearing)."
   Output: assets/maps/<scene>/base.png
+
+  ⚠️ Before sending this prompt, re-scan its positive description
+  for these words: building / house / shrine / dojo / temple / gate /
+  door / fence / wall / lantern / banner / altar / statue / tree /
+  bush / crate / sign / weapon rack / npc. If any appear OUTSIDE
+  the EXCLUSION CLAUSE: rewrite. The model will draw whatever you
+  describe — even one mention of "shrine" produces a shrine in the
+  base.
+
+  ⚠️ After generation: open base.png. If you see buildings /
+  shrines / props you intended to be in the props list — REGENERATE.
+  Do not proceed to Phase 3 on a contaminated base. Phase 3 cannot
+  un-add what's already baked in; it will produce a near-duplicate.
 
 Phase 3 — REFERENCE MAP (base + all props composited):
   tool_use 1: view_image assets/maps/<scene>/base.png   ← phase 2 output
   tool_use 2: generate2dmap with:
               - reference: 'generated_image'
-              - prompt: "Take the loaded base map. Add the following
-                         props in their final positions, blended
-                         into the scene with consistent lighting
-                         and palette: <list each prop with x/y +
-                         sketch>. This is a planning mockup; props
-                         will be extracted in the next phase."
+              - prompt: "Take the loaded base map exactly as is.
+                         Composite the following props onto it in
+                         their final positions, blended with
+                         consistent lighting and palette. Treat
+                         the loaded image as the GROUND — keep its
+                         terrain unchanged; only ADD the listed
+                         props on top: <list each prop bucket item
+                         with rough x/y position and 1-line visual
+                         description>. This is a planning mockup;
+                         props will be extracted in the next phase."
   Output: assets/maps/<scene>/reference.png
+
+  ⚠️ After generation: byte-compare base.png vs reference.png
+  (e.g. `md5sum` or visual diff). If identical or near-identical:
+  Phase 3 was a no-op (the model returned the loaded base
+  unchanged). Re-do with a more aggressive prompt that explicitly
+  says "ADD these new objects on top of the loaded image". The
+  failure mode is the model treating "Take the loaded base" as
+  "return the loaded base" — counter it by emphasizing ADD/COMPOSITE.
 
 Phase 4..N — INDIVIDUAL PROPS (one call per prop):
   For each prop:
