@@ -58,19 +58,66 @@ function clampPlayer(player) {
 
 Forced scroll = level pacing (Itay Keren calls this "autoscroll" in his camera essay). The player can dodge but never stop time.
 
-## Background — auto-scrolling tile
+## Background — segmented progression, NOT single tile
 
-Single tileable image, scrolled by `camera.y` (or `camera.x`). Often layered: 2 tiles for slow stars + fast asteroids = subtle parallax.
+> ⚠️ **The biggest shmup feel-bug: single repeating tile makes the player feel "stuck in place"** even though the world is scrolling. The screen visibly moves but the same image keeps coming back, so brain reads "no progress". Players want to feel they're traversing distinct terrain.
 
-```js
-function drawScrollBg(ctx, img, scrollFactor = 1) {
-  const offsetY = -((camera.y * scrollFactor) % img.height);
-  ctx.drawImage(img, 0, offsetY);
-  ctx.drawImage(img, 0, offsetY + img.height);
-}
+### Use segmented backgrounds for the main stage
+
+Schema v2 supports `tileMode: 'segments' + segmentImages[]`. **Use it for the main stage**:
+
+```json
+"layers": [
+  {
+    "id": "ground",
+    "tileMode": "segments",
+    "segmentImages": [
+      "assets/maps/stage1/seg_field.png",      // 0-30s: rice fields
+      "assets/maps/stage1/seg_forest.png",     // 30-50s: forest
+      "assets/maps/stage1/seg_castle_approach.png" // 50-72s: castle gates
+    ],
+    "parallax": 0.55,
+    "zIndex": 0
+  }
+]
 ```
 
-For 2 layers: `bg_slow` at `scrollFactor 0.4`, `bg_fast` at `scrollFactor 1.0`.
+3-5 segments per main stage gives clear environmental progression. Each segment is one camera-height (or camera-width for horizontal) sized.
+
+### Single tile is FOR boss arena ONLY
+
+Boss arena is a fixed-camera one-screen fight. Use a **single static `background: { image: "..." }`** (NOT a tiled scroll). It looks like a unique fight stage, not a continuation of the scroll.
+
+```json
+// boss arena:
+"background": { "image": "assets/maps/boss_arena/throne_room.png" }
+// NO scrollAxis, NO tile, NO segments
+```
+
+### Optional secondary parallax layer
+
+If you want depth, add ONE additional layer (stars / clouds / smoke) at a different parallax factor. Keep the main `ground` segmented; the secondary layer can be single-image-loop:
+
+```json
+"layers": [
+  {
+    "id": "stars_far",
+    "image": "assets/maps/stage1/stars.png",
+    "parallax": 0.15,
+    "zIndex": 0,
+    "tileMode": "loop"
+  },
+  {
+    "id": "ground",
+    "tileMode": "segments",
+    "segmentImages": [...],
+    "parallax": 0.55,
+    "zIndex": 1
+  }
+]
+```
+
+Don't go beyond 2 layers for shmup — the action has too much going on for player to register more.
 
 ## Bullets — object pooling is MANDATORY
 

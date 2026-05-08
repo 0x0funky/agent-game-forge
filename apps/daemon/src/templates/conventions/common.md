@@ -168,6 +168,55 @@ These contain everything about: side-scroll segment counts, platform strategies,
 
 `.ogf/spec.md` §1 contains a 'Style directive' line — the concrete art direction the project locks. **Every** `generate2dsprite` and `generate2dmap` call must include this directive verbatim in the prompt argument. After each gen, the skill writes the actual prompt back to `prompt-used.txt` next to the asset; that's your audit trail.
 
+## Palette discipline — sprite vs map roles (universal)
+
+Past projects across multiple genres (sengoku platformer, three-kingdoms TD, sengoku arena, vertical shmup) produced backgrounds where characters blend in because spec §1 listed ONE palette and both `generate2dsprite` + `generate2dmap` used the SAME colors at full saturation. Every genre suffers; the rule lives here.
+
+### Required structure for spec.md §1 palette
+
+Spec must declare TWO palette roles instead of a single flat list:
+
+- **Sprite palette** (full saturation, high contrast):
+  Used for player, enemies, projectiles, pickups, weapon FX, hazards.
+  These are the "accent colors" — should pop visually.
+
+- **Map palette** (desaturated, lower value):
+  Used for ground tiles, parallax layers, terrain props, walls, floors,
+  decorative scenery, level architecture.
+  These are "subordinated colors" — should recede so sprites read on top.
+
+Example for an ink-style sengoku game:
+```
+Sprite palette: #D9362B vermilion, #E5B84A gold, #2FA66A jade
+Map palette:    #6E1F18 muted oxblood, #8C7842 olive, #2A1B16 ink shadow
+                (same hues, ~50% saturation reduction + ~20% value drop)
+```
+
+The map versions can be the same hues at lower saturation (one cohesive look) OR completely different hues (more contrast). The point is sprite-role colors must NOT appear in map at full intensity.
+
+### Required at every gen call
+
+Every `generate2dsprite` prompt MUST include verbatim:
+```
+"Use the SPRITE palette: <list spec's sprite colors>."
+```
+
+Every `generate2dmap` prompt MUST include verbatim:
+```
+"Use the MAP/BACKGROUND palette (subordinated): <list spec's map colors>.
+ Avoid sprite-role colors at full saturation."
+```
+
+This is in addition to the `[STYLE DIRECTIVE]` line of the prompt template — palette discipline is a separate explicit instruction.
+
+### Repair if the result fails
+
+If a generated map makes sprites hard to read after an apply:
+1. Open the map's `prompt-used.txt` — does it cite the map palette role explicitly?
+2. If not: regenerate with explicit map-palette mention.
+3. If yes but result still bad: reduce map palette saturation another 20% in spec.md §1, regenerate.
+4. Last resort: shift map hues away from sprite hues (e.g. sprite reds → map cool greys/blues).
+
 ## Prompt template — required for every skill call
 
 Past projects produced bad assets when the agent shortcut prompts to ~10 words ("ronin idle 2x2"). The reference image carries some weight, but a skeletal prompt loses palette / proportion / mood and the model fills in defaults that drift from the project. **Every `generate2dsprite` / `generate2dmap` prompt MUST be ≥ 200 chars and follow this template:**

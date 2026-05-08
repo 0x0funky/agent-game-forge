@@ -53,7 +53,7 @@ No deadzone, no lookahead. Player is at screen center.
 
 ## Background — tileable image, scrolls with camera infinitely
 
-Single grass/floor tile, drawn as a `TileSprite`-like pattern. Each frame, the tile offset = `camera position % tile size`:
+Arena-survivor's main field is a single tile (this genre IS one big repeating arena — that's the design, not a bug). Player movement creates the perception of motion via enemy/pickup positions changing relative to bg.
 
 ```js
 function drawTiledBackground(ctx, img, tileW, tileH) {
@@ -67,7 +67,28 @@ function drawTiledBackground(ctx, img, tileW, tileH) {
 }
 ```
 
-No parallax (single layer). The illusion of motion comes from the player + enemies moving relative to the tiled bg.
+Schema shape:
+```json
+"background": {
+  "tile": "assets/maps/<level>/ground_tile.png",
+  "tileW": 256,
+  "tileH": 256,
+  "scrollWith": "camera"
+}
+```
+
+No parallax (single layer). The variety in arena-survivor comes from **wave content + map events**, not bg variation — that's the genre signature.
+
+### Boss arena is DIFFERENT
+
+When the user transitions to a boss arena (locked camera, fixed bounds), DON'T use `background.tile`. Use a **single static `background: { image: "..." }`** so the boss fight feels like a distinct stage, not "more of the same field":
+
+```json
+// honnoji_boss_arena.json:
+"background": { "image": "assets/maps/honnoji_boss_arena/throne_floor.png" }
+```
+
+Boss arena image is sized = camera viewport (e.g. 1280×720), full-camera coverage. No tiling, no parallax.
 
 ## Enemy spawn — ring outside viewport (CANONICAL VS pattern)
 
