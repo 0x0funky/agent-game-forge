@@ -353,8 +353,31 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
       };
     }
 
+    // Same alias acceptance as background — refactored projects may use
+    // sprite/path/src/texture instead of OGF's canonical 'image'. Without
+    // this, refactored props render as red translucent rects (no
+    // texture). String forms primarily; we also handle one common
+    // object form (sprite: { path: '...' }) which appears in catalogs
+    // when refactored from existing JS games.
+    function pickImagePath(entry: RectLike): string | null {
+      const trim = (s: string) => s.replace(/^\.?\//, '');
+      for (const key of ['image', 'sprite', 'path', 'src', 'texture'] as const) {
+        const v = (entry as Record<string, unknown>)[key];
+        if (typeof v === 'string') return trim(v);
+      }
+      for (const key of ['image', 'sprite'] as const) {
+        const v = (entry as Record<string, unknown>)[key];
+        if (v && typeof v === 'object') {
+          const obj = v as Record<string, unknown>;
+          if (typeof obj.path === 'string') return trim(obj.path);
+          if (typeof obj.image === 'string') return trim(obj.image);
+        }
+      }
+      return null;
+    }
+
     editable.forEach((p, idx) => {
-      const direct = typeof p.image === 'string' ? p.image : null;
+      const direct = pickImagePath(p);
       const tileKey = (p as { tile?: unknown }).tile;
       const libEntry = direct ? null : resolveLibraryEntry(tileKey);
       const tilePieces = buildTilePieces(libEntry);
