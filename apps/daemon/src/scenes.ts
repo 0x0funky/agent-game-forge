@@ -780,6 +780,11 @@ function applyOpsToJsonScene(opts: ApplyOpsOptions): ApplyOpsResult {
         throw new Error(`resize-circle-collider on .json scene must use json ref`);
       }
       applyJsonColliderEdit(opts.rootAbs, op.ref, { radius: op.r });
+    } else if (op.kind === 'move-path-point') {
+      if (op.ref.backend !== 'json') {
+        throw new Error(`move-path-point on .json scene must use json ref`);
+      }
+      applyJsonPathPointEdit(opts.rootAbs, op.ref, op.index, op.position);
     } else {
       throw new Error(
         `op '${(op as { kind: string }).kind}' not supported on .json scenes`,
@@ -789,6 +794,55 @@ function applyOpsToJsonScene(opts: ApplyOpsOptions): ApplyOpsResult {
 
   const sceneAbs = safeJoin(opts.rootAbs, opts.relPath);
   return { size: existsSync(sceneAbs) ? statSync(sceneAbs).size : 0 };
+}
+
+/** Patch a single point inside `paths[id].points[index]` of a JSON
+ *  level file. Used by the Scene editor when the user drags a path
+ *  waypoint. Path data lives raw {x,y} (no center-conversion) so we
+ *  just overwrite the indexed point.
+ *
+ *  This was missing before — the editor sent `move-path-point` ops
+ *  but `applyOpsToJsonScene` only knew about props/colliders, so
+ *  every drag on a path waypoint failed with 'op not supported on
+ *  .json scenes'. */
+function applyJsonPathPointEdit(
+  rootAbs: string,
+  ref: import('@ogf/contracts').ColliderRef & { backend: 'json' },
+  pointIndex: number,
+  position: { x: number; y: number },
+): void {
+  const abs = safeJoin(rootAbs, ref.relPath);
+  const text = readFileSync(abs, 'utf8');
+  const json = JSON.parse(text) as Record<string, unknown>;
+
+  // ref.section is the array name carrying paths — usually 'paths', but
+  // we tolerate older convention names too. Walk the section to find
+  // the path with the matching id.
+  const section = ref.section || 'paths';
+  const arr = json[section];
+  if (!Array.isArray(arr)) {
+    throw new Error(`section '${section}' is not an array in ${ref.relPath}`);
+  }
+  const pathEntry = (arr as Array<{ id?: string; points?: Array<{ x?: number; y?: number }> }>)
+    .find((p) => p?.id === ref.id);
+  if (!pathEntry) {
+    throw new Error(`path '${ref.id}' not found in ${ref.relPath}#${section}`);
+  }
+  if (!Array.isArray(pathEntry.points)) {
+    throw new Error(`path '${ref.id}' has no points[] array`);
+  }
+  if (pointIndex < 0 || pointIndex >= pathEntry.points.length) {
+    throw new Error(
+      `point index ${pointIndex} out of range (path '${ref.id}' has ${pathEntry.points.length} points)`,
+    );
+  }
+
+  const point = pathEntry.points[pointIndex] ?? {};
+  point.x = position.x;
+  point.y = position.y;
+  pathEntry.points[pointIndex] = point;
+
+  writeFileSync(abs, JSON.stringify(json, null, 2) + '\n', 'utf8');
 }
 
 /** JSON colliders store rects as top-left + (w,h) but our model uses center.

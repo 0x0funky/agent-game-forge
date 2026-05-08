@@ -168,6 +168,38 @@ These contain everything about: side-scroll segment counts, platform strategies,
 
 `.ogf/spec.md` §1 contains a 'Style directive' line — the concrete art direction the project locks. **Every** `generate2dsprite` and `generate2dmap` call must include this directive verbatim in the prompt argument. After each gen, the skill writes the actual prompt back to `prompt-used.txt` next to the asset; that's your audit trail.
 
+## Prompt template — required for every skill call
+
+Past projects produced bad assets when the agent shortcut prompts to ~10 words ("ronin idle 2x2"). The reference image carries some weight, but a skeletal prompt loses palette / proportion / mood and the model fills in defaults that drift from the project. **Every `generate2dsprite` / `generate2dmap` prompt MUST be ≥ 200 chars and follow this template:**
+
+```
+[STYLE DIRECTIVE — paste verbatim from spec.md §1]
+[VIEW + GENRE in one phrase]
+[SUBJECT + ACTION in plain English]
+[GRID/LAYOUT only if non-default]
+[REFERENCE NOTE]
+```
+
+Concrete:
+
+❌ **Too short** (8 words, no project context):
+```
+ronin idle side-view 2x2
+```
+
+✅ **Correct** (~280 chars, includes everything):
+```
+Style: hand-painted ink 2D side-scrolling action art, warm sunset palette
+(#7A1E18 oxblood, #C75A28 burnt orange, #F0B35A gold), Sengoku motifs
+(lamellar armor, katana, war banners), readable Mega Man X-style silhouettes.
+Side-view platformer. Subject: border ronin warrior in idle breathing stance,
+body-only sheet. Reference-aligned to the previously loaded ronin idle sheet.
+```
+
+The template is mechanical — copy spec.md §1 Style directive verbatim, append a one-line view+genre tag, append subject+action, append reference note. **Don't paraphrase or compress the style directive.** Even if the reference image carries it, the words anchor the model when image + text disagree.
+
+After every gen call, open `prompt-used.txt` next to the new asset and verify the saved prompt matches the template. If the saved prompt is short / missing style: the skill received your shortened version, the asset is degraded, regenerate with the full template.
+
 ## Visual consistency — reference image workflow is MANDATORY
 
 Drift across generated assets (same character looking like 4 different people across animations) is the #1 quality-killer. Before every `generate2dsprite` / `generate2dmap` call after the first:
