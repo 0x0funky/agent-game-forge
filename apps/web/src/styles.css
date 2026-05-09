@@ -4444,6 +4444,52 @@ input, textarea, select { font: inherit; color: inherit; background: none; borde
   cursor: not-allowed;
 }
 
+/* Floating "tool palette" inside the scene canvas. Holds contextual add/
+   delete actions per editor mode. Lives inside the canvas so it doesn't
+   shift the mode tabs in the header when its contents change.
+
+   Anchored top-left, just below where the canvas meets the inspector
+   header. Click events on the palette stop short of the canvas so the
+   user doesn't accidentally start a draft when reaching for a button. */
+.scene-tool-palette {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-pop);
+  z-index: 4;
+  user-select: none;
+}
+.scene-tool-palette .palette-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 2px;
+}
+.scene-tool-palette .palette-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-2);
+  margin-left: 4px;
+  padding-right: 2px;
+}
+.scene-tool-palette .btn {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+.scene-tool-palette .btn.danger {
+  color: var(--danger, #d96666);
+}
+.scene-tool-palette .btn.danger:hover:not(:disabled) {
+  background: rgba(217, 102, 102, 0.12);
+}
+
 /* =============== COMMENT THREADS =============== */
 .scene-canvas-wrap[data-mode="comments"] {
   /* Inline style on the wrap sets cursor too — this is the fallback /

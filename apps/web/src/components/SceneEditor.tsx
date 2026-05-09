@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  AddColliderOp,
   ColliderRef,
   CommentAnchor,
   CommentThread,
@@ -1632,6 +1633,99 @@ export function SceneEditor(props: Props) {
     setAddShapeKind(null);
   }
 
+  // -------- Delete current selection --------
+  //
+  // Drives both the floating-palette delete button and the Delete /
+  // Backspace keyboard shortcut. Whatever is selected in the active mode
+  // gets removed; the inverse op restores it via undo. JSON-backed entries
+  // only — Godot .tscn deletes need a separate backend writer.
+  function deleteSelection(): void {
+    if (!scene) return;
+    if (mode === 'props' && selectedNodePath) {
+      const p = scene.props.find((x) => x.nodePath === selectedNodePath);
+      if (!p || !p.ref || p.ref.backend !== 'json') return;
+      const entry = {
+        id: p.ref.id,
+        image: p.texture ?? '',
+        x: p.position.x,
+        y: p.position.y,
+        w: p.displaySize?.x ?? 0,
+        h: p.displaySize?.y ?? 0,
+        ...(p.metadata.sortY ? { sortY: Number(p.metadata.sortY) } : {}),
+      };
+      setScene((s) => (s ? { ...s, props: s.props.filter((x) => x.nodePath !== p.nodePath) } : s));
+      setSelectedNodePath(null);
+      commitOps(
+        [{ kind: 'remove-prop', relPath: p.ref.relPath, section: p.ref.section, id: p.ref.id }],
+        [{ kind: 'add-prop', relPath: p.ref.relPath, section: p.ref.section, entry }],
+        `delete ${p.ref.id}`,
+      );
+      return;
+    }
+    if (mode === 'colliders' && selectedColliderUid) {
+      const c = scene.colliders.find((x) => x.uid === selectedColliderUid);
+      if (!c || c.ref.backend !== 'json') return;
+      const ref = c.ref;
+      // Reconstruct the JSON entry shape so undo can re-add.
+      let entry: AddColliderOp['entry'];
+      if (c.shape.kind === 'rect') {
+        entry = {
+          id: ref.id,
+          type: 'rect',
+          x: c.position.x - c.shape.w / 2,
+          y: c.position.y - c.shape.h / 2,
+          w: c.shape.w,
+          h: c.shape.h,
+        };
+      } else if (c.shape.kind === 'circle') {
+        entry = {
+          id: ref.id,
+          type: 'circle',
+          x: c.position.x,
+          y: c.position.y,
+          radius: c.shape.r,
+        };
+      } else if (c.shape.kind === 'polygon') {
+        entry = {
+          id: ref.id,
+          type: 'polygon',
+          points: c.shape.points.map((p) => [p.x, p.y]),
+        };
+      } else {
+        // 'point' — no on-disk shape; skip delete for now.
+        return;
+      }
+      setScene((s) => (s ? { ...s, colliders: s.colliders.filter((x) => x.uid !== c.uid) } : s));
+      setSelectedColliderUid(null);
+      commitOps(
+        [{ kind: 'remove-collider', relPath: ref.relPath, section: ref.section, id: ref.id }],
+        [{ kind: 'add-collider', relPath: ref.relPath, section: ref.section, entry }],
+        `delete ${ref.id}`,
+      );
+      return;
+    }
+    if (mode === 'paths' && selectedPath) {
+      const p = scene.paths.find((x) => x.uid === selectedPath.uid);
+      if (!p || p.ref.backend !== 'json') return;
+      const ref = p.ref;
+      const entry = {
+        id: ref.id,
+        points: p.points.map((pt) => ({ x: pt.x, y: pt.y })),
+      };
+      setScene((s) => (s ? { ...s, paths: s.paths.filter((x) => x.uid !== p.uid) } : s));
+      setSelectedPath(null);
+      commitOps(
+        [{ kind: 'remove-path', relPath: ref.relPath, section: ref.section, id: ref.id }],
+        [{ kind: 'add-path', relPath: ref.relPath, section: ref.section, entry }],
+        `delete ${ref.id}`,
+      );
+      return;
+    }
+    // zones mode + zones selection: not yet supported — zones live in a
+    // top-level OBJECT keyed by zone id (not an array), so delete needs
+    // a different writer. Tracked separately.
+  }
+
   // -------- Add polygon collider (multi-click vertex) --------
   function commitPolygonDraft(): void {
     const draft = polygonDraft;
@@ -1768,12 +1862,35 @@ export function SceneEditor(props: Props) {
             setPolygonDraft({ points: next });
           }
         }
+        return;
+      }
+      // Delete / Backspace deletes the current selection (no draft active).
+      // Backspace doubles as "remove last vertex" while drafting, so we only
+      // route it to delete when no draft is mid-flight.
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const hasSel =
+          (mode === 'props' && !!selectedNodePath) ||
+          (mode === 'colliders' && !!selectedColliderUid) ||
+          (mode === 'paths' && !!selectedPath);
+        if (hasSel) {
+          e.preventDefault();
+          deleteSelection();
+        }
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftShape, addShapeKind, pathDraft, polygonDraft]);
+  }, [
+    draftShape,
+    addShapeKind,
+    pathDraft,
+    polygonDraft,
+    mode,
+    selectedNodePath,
+    selectedColliderUid,
+    selectedPath,
+  ]);
 
   // -------- Add prop (from picker modal) --------
   //
@@ -1967,106 +2084,6 @@ export function SceneEditor(props: Props) {
             onRedo={redo}
           />
           <ModeToggle mode={mode} setMode={setMode} />
-          {mode === 'props' && props.relPath.toLowerCase().endsWith('.json') && (
-            <button
-              className="btn btn-sm"
-              title="Add a prop to this scene (image picker)"
-              onClick={() => setPropPickerOpen(true)}
-              disabled={!scene}
-            >
-              + prop
-            </button>
-          )}
-          {mode === 'colliders' && scene?.collidersJsonPath && (
-            polygonDraft ? (
-              <>
-                <button
-                  className="btn btn-sm"
-                  title="Close polygon (Enter)"
-                  onClick={commitPolygonDraft}
-                  disabled={polygonDraft.points.length < 3}
-                >
-                  finish ({polygonDraft.points.length} pt)
-                </button>
-                <button
-                  className="btn btn-sm btn-ghost"
-                  title="Cancel (Esc)"
-                  onClick={() => {
-                    setPolygonDraft(null);
-                    setPathDraftCursor(null);
-                  }}
-                >
-                  cancel
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  className={`btn btn-sm ${addShapeKind === 'rect' ? 'active' : ''}`}
-                  title="Drag in empty space to draw a rectangle blocker (Esc to cancel)"
-                  onClick={() =>
-                    setAddShapeKind((k) => (k === 'rect' ? null : 'rect'))
-                  }
-                >
-                  + rect
-                </button>
-                <button
-                  className={`btn btn-sm ${addShapeKind === 'circle' ? 'active' : ''}`}
-                  title="Drag in empty space to draw a circle blocker (Esc to cancel)"
-                  onClick={() =>
-                    setAddShapeKind((k) => (k === 'circle' ? null : 'circle'))
-                  }
-                >
-                  + circle
-                </button>
-                <button
-                  className={`btn btn-sm ${addShapeKind === 'polygon' ? 'active' : ''}`}
-                  title="Click to place each polygon vertex, Enter / dbl-click to close (≥ 3 points)"
-                  onClick={() =>
-                    setAddShapeKind((k) => (k === 'polygon' ? null : 'polygon'))
-                  }
-                >
-                  + poly
-                </button>
-              </>
-            )
-          )}
-          {mode === 'paths' && props.relPath.toLowerCase().endsWith('.json') && (
-            pathDraft ? (
-              <>
-                <button
-                  className="btn btn-sm"
-                  title="Finish path (Enter)"
-                  onClick={commitPathDraft}
-                  disabled={pathDraft.points.length < 2}
-                >
-                  finish ({pathDraft.points.length} pt)
-                </button>
-                <button
-                  className="btn btn-sm btn-ghost"
-                  title="Cancel (Esc)"
-                  onClick={() => {
-                    setPathDraft(null);
-                    setPathDraftCursor(null);
-                  }}
-                >
-                  cancel
-                </button>
-              </>
-            ) : (
-              <button
-                className="btn btn-sm"
-                title="Click in canvas to place each waypoint, Enter to finish"
-                onClick={() => {
-                  setPathDraft({ points: [] });
-                  setSelectedPath(null);
-                }}
-                disabled={!scene}
-              >
-                + path
-              </button>
-            )
-          )}
           <SaveBadge state={savingState} error={saveError} />
           <button
             className="btn btn-sm btn-ghost"
@@ -2123,6 +2140,39 @@ export function SceneEditor(props: Props) {
           }}
         >
           <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
+          {/* Floating contextual tool palette — sits inside the canvas so
+              its width changing across modes never shifts the mode tabs in
+              the toolbar header. */}
+          {scene && mode !== 'comments' && (
+            <ScenePalette
+              mode={mode}
+              relPath={props.relPath}
+              scene={scene}
+              addShapeKind={addShapeKind}
+              setAddShapeKind={setAddShapeKind}
+              pathDraft={pathDraft}
+              polygonDraft={polygonDraft}
+              hasPropSelected={!!selectedNodePath}
+              hasColliderSelected={!!selectedColliderUid}
+              hasPathSelected={!!selectedPath}
+              onOpenPropPicker={() => setPropPickerOpen(true)}
+              onStartPathDraft={() => {
+                setPathDraft({ points: [] });
+                setSelectedPath(null);
+              }}
+              onCommitPathDraft={commitPathDraft}
+              onCancelPathDraft={() => {
+                setPathDraft(null);
+                setPathDraftCursor(null);
+              }}
+              onCommitPolygonDraft={commitPolygonDraft}
+              onCancelPolygonDraft={() => {
+                setPolygonDraft(null);
+                setPathDraftCursor(null);
+              }}
+              onDelete={deleteSelection}
+            />
+          )}
           {loading && (
             <div className="scene-overlay">Loading scene…</div>
           )}
@@ -3334,6 +3384,201 @@ function UndoRedo({
         ↷
       </button>
     </span>
+  );
+}
+
+// ScenePalette — floating in-canvas tool palette. Replaced the inline
+// header buttons because adding/removing them from the toolbar shifted the
+// mode tabs sideways across mode switches — bad muscle-memory experience.
+//
+// Per-mode contents:
+//   props      → + prop  | delete (when prop selected)
+//   colliders  → + rect, + circle, + poly   | delete   (or finish/cancel
+//                while a polygonDraft is in progress)
+//   paths      → + path                     | delete   (or finish/cancel
+//                while a pathDraft is in progress)
+//   zones      → delete only (add not supported yet — zones are object-
+//                keyed in JSON, not array)
+function ScenePalette({
+  mode,
+  relPath,
+  scene,
+  addShapeKind,
+  setAddShapeKind,
+  pathDraft,
+  polygonDraft,
+  hasPropSelected,
+  hasColliderSelected,
+  hasPathSelected,
+  onOpenPropPicker,
+  onStartPathDraft,
+  onCommitPathDraft,
+  onCancelPathDraft,
+  onCommitPolygonDraft,
+  onCancelPolygonDraft,
+  onDelete,
+}: {
+  mode: EditMode;
+  relPath: string;
+  scene: SceneModel;
+  addShapeKind: null | 'rect' | 'circle' | 'polygon';
+  setAddShapeKind: (
+    f: (k: null | 'rect' | 'circle' | 'polygon') => null | 'rect' | 'circle' | 'polygon',
+  ) => void;
+  pathDraft: { points: Vec2[] } | null;
+  polygonDraft: { points: Vec2[] } | null;
+  hasPropSelected: boolean;
+  hasColliderSelected: boolean;
+  hasPathSelected: boolean;
+  onOpenPropPicker: () => void;
+  onStartPathDraft: () => void;
+  onCommitPathDraft: () => void;
+  onCancelPathDraft: () => void;
+  onCommitPolygonDraft: () => void;
+  onCancelPolygonDraft: () => void;
+  onDelete: () => void;
+}) {
+  const isJson = relPath.toLowerCase().endsWith('.json');
+
+  // Stop pointer events from reaching the canvas. Without this, clicking
+  // a palette button while addShapeKind is armed triggers the canvas's
+  // mousedown right after the button click — user thinks they clicked
+  // "+ rect" but it also seeded a draft at button-click coords.
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+
+  // ---- Polygon draft mode: replace add buttons with finish/cancel ----
+  if (mode === 'colliders' && polygonDraft) {
+    return (
+      <div className="scene-tool-palette" onMouseDown={stop} onClick={stop}>
+        <button
+          className="btn btn-sm"
+          onClick={onCommitPolygonDraft}
+          disabled={polygonDraft.points.length < 3}
+          title="Close polygon (Enter)"
+        >
+          finish ({polygonDraft.points.length} pt)
+        </button>
+        <button
+          className="btn btn-sm btn-ghost"
+          onClick={onCancelPolygonDraft}
+          title="Cancel (Esc)"
+        >
+          cancel
+        </button>
+        <span className="palette-hint">Click vertex · Backspace undo · Enter close</span>
+      </div>
+    );
+  }
+
+  // ---- Path draft mode: replace add buttons with finish/cancel ----
+  if (mode === 'paths' && pathDraft) {
+    return (
+      <div className="scene-tool-palette" onMouseDown={stop} onClick={stop}>
+        <button
+          className="btn btn-sm"
+          onClick={onCommitPathDraft}
+          disabled={pathDraft.points.length < 2}
+          title="Finish path (Enter)"
+        >
+          finish ({pathDraft.points.length} pt)
+        </button>
+        <button
+          className="btn btn-sm btn-ghost"
+          onClick={onCancelPathDraft}
+          title="Cancel (Esc)"
+        >
+          cancel
+        </button>
+        <span className="palette-hint">Click waypoint · Backspace undo · Enter finish</span>
+      </div>
+    );
+  }
+
+  // ---- Default per-mode buttons ----
+  const buttons: React.ReactNode[] = [];
+
+  if (mode === 'props' && isJson) {
+    buttons.push(
+      <button
+        key="add-prop"
+        className="btn btn-sm"
+        onClick={onOpenPropPicker}
+        title="Add a prop to this scene (image picker)"
+      >
+        + prop
+      </button>,
+    );
+  }
+  if (mode === 'colliders' && scene.collidersJsonPath) {
+    buttons.push(
+      <button
+        key="add-rect"
+        className={`btn btn-sm ${addShapeKind === 'rect' ? 'active' : ''}`}
+        onClick={() => setAddShapeKind((k) => (k === 'rect' ? null : 'rect'))}
+        title="Drag in empty space to draw a rectangle blocker"
+      >
+        + rect
+      </button>,
+      <button
+        key="add-circle"
+        className={`btn btn-sm ${addShapeKind === 'circle' ? 'active' : ''}`}
+        onClick={() => setAddShapeKind((k) => (k === 'circle' ? null : 'circle'))}
+        title="Drag in empty space to draw a circle blocker"
+      >
+        + circle
+      </button>,
+      <button
+        key="add-poly"
+        className={`btn btn-sm ${addShapeKind === 'polygon' ? 'active' : ''}`}
+        onClick={() => setAddShapeKind((k) => (k === 'polygon' ? null : 'polygon'))}
+        title="Click to place each polygon vertex (≥ 3), Enter to close"
+      >
+        + poly
+      </button>,
+    );
+  }
+  if (mode === 'paths' && isJson) {
+    buttons.push(
+      <button
+        key="add-path"
+        className="btn btn-sm"
+        onClick={onStartPathDraft}
+        title="Click in canvas to place each waypoint, Enter to finish"
+      >
+        + path
+      </button>,
+    );
+  }
+
+  // Delete button — enabled per mode only when something is selected.
+  const canDelete =
+    (mode === 'props' && hasPropSelected) ||
+    (mode === 'colliders' && hasColliderSelected) ||
+    (mode === 'paths' && hasPathSelected);
+
+  // If there are no add buttons AND nothing to delete, hide the palette
+  // entirely (e.g. zones mode without selection).
+  if (buttons.length === 0 && !canDelete && mode !== 'zones') return null;
+
+  return (
+    <div className="scene-tool-palette" onMouseDown={stop} onClick={stop}>
+      {buttons}
+      {buttons.length > 0 && canDelete && <span className="palette-sep" />}
+      {(canDelete || mode === 'zones') && (
+        <button
+          className="btn btn-sm danger"
+          onClick={onDelete}
+          disabled={!canDelete}
+          title={
+            canDelete
+              ? `Delete selected ${mode === 'props' ? 'prop' : mode === 'colliders' ? 'collider' : mode === 'paths' ? 'path' : 'item'} (Del)`
+              : 'Select something to delete'
+          }
+        >
+          delete
+        </button>
+      )}
+    </div>
   );
 }
 
