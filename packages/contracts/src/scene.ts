@@ -324,6 +324,27 @@ export interface RemoveColliderOp {
   id: string;
 }
 
+/** Append a new path entry. Web JSON convention: points are absolute world
+ *  coords (the loader sets origin=(0,0)). For .tscn paths the agent must
+ *  add Path2D nodes manually — only the JSON backend is supported here. */
+export interface AddPathOp {
+  kind: 'add-path';
+  relPath: string;
+  /** Defaults to 'paths' on the daemon side. */
+  section?: string;
+  entry: {
+    id: string;
+    points: Vec2[];
+  };
+}
+
+export interface RemovePathOp {
+  kind: 'remove-path';
+  relPath: string;
+  section?: string;
+  id: string;
+}
+
 export type SceneOp =
   | MovePropOp
   | ScalePropOp
@@ -334,7 +355,9 @@ export type SceneOp =
   | AddPropOp
   | RemovePropOp
   | AddColliderOp
-  | RemoveColliderOp;
+  | RemoveColliderOp
+  | AddPathOp
+  | RemovePathOp;
 
 export interface ApplySceneOpsRequest {
   projectPath: string;

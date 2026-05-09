@@ -170,6 +170,13 @@ export function SceneEditor(props: Props) {
     | { kind: 'circle'; cx: number; cy: number; cur: Vec2 }
     | null
   >(null);
+  // In-progress new path (paths mode + + path button). Each click adds a
+  // point; Enter / double-click commits when ≥ 2 points; Backspace pops
+  // the last point; ESC cancels.
+  const [pathDraft, setPathDraft] = useState<{ points: Vec2[] } | null>(null);
+  // Cursor world position while drafting a path — drives the "rubber band"
+  // segment from the last placed point to the cursor.
+  const [pathDraftCursor, setPathDraftCursor] = useState<Vec2 | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -539,6 +546,39 @@ export function SceneEditor(props: Props) {
       ctx.restore();
     }
 
+    // Draft path preview — committed segments solid, rubber-band to cursor
+    // dashed. Dots at every committed point so the user can count.
+    if (pathDraft && pathDraft.points.length > 0) {
+      ctx.save();
+      const lineW = Math.max(1, 2 / camera.scale);
+      ctx.strokeStyle = '#7cf';
+      ctx.lineWidth = lineW;
+      ctx.beginPath();
+      ctx.moveTo(pathDraft.points[0].x, pathDraft.points[0].y);
+      for (let i = 1; i < pathDraft.points.length; i++) {
+        ctx.lineTo(pathDraft.points[i].x, pathDraft.points[i].y);
+      }
+      ctx.stroke();
+      // Rubber band from last point to cursor.
+      if (pathDraftCursor) {
+        const last = pathDraft.points[pathDraft.points.length - 1];
+        ctx.setLineDash([8 / camera.scale, 6 / camera.scale]);
+        ctx.beginPath();
+        ctx.moveTo(last.x, last.y);
+        ctx.lineTo(pathDraftCursor.x, pathDraftCursor.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      // Dot at each committed waypoint.
+      ctx.fillStyle = '#7cf';
+      for (const p of pathDraft.points) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.max(2, 4 / camera.scale), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
     ctx.restore();
 
     // HUD
@@ -556,6 +596,8 @@ export function SceneEditor(props: Props) {
     selectedThreadId,
     draftAnchor,
     draftShape,
+    pathDraft,
+    pathDraftCursor,
   ]);
 
   useEffect(() => {
@@ -846,6 +888,19 @@ export function SceneEditor(props: Props) {
 
     // ----- Paths mode -----
     if (mode === 'paths' && e.button === 0 && !e.altKey) {
+      // 0) Drafting a new path? Each click appends a waypoint. Snap to
+      //    integer pixels unless Shift is held.
+      if (pathDraft) {
+        const snap = !e.shiftKey;
+        const pt = {
+          x: snap ? Math.round(w.x) : w.x,
+          y: snap ? Math.round(w.y) : w.y,
+        };
+        setPathDraft({ points: [...pathDraft.points, pt] });
+        // No drag — return without attaching window listeners. Scene render
+        // updates from the state change above.
+        return;
+      }
       const hit = findPathPointAt(w);
       if (hit) {
         setSelectedPath({ uid: hit.path.uid, pointIdx: hit.index });
@@ -1495,24 +1550,81 @@ export function SceneEditor(props: Props) {
     setAddShapeKind(null);
   }
 
+  // -------- Add path (multi-click waypoint) --------
+  //
+  // Called on Enter / "finish" / double-click. Builds the entry from the
+  // pathDraft, splices a ScenePath into local state, commits, and exits
+  // draft mode. Skips draft with < 2 points (a single click isn't a path).
+  function commitPathDraft(): void {
+    const draft = pathDraft;
+    setPathDraft(null);
+    setPathDraftCursor(null);
+    if (!draft || draft.points.length < 2) return;
+    if (!scene) return;
+    const relPath = props.relPath;
+    const section = 'paths';
+    const suffix = Math.random().toString(36).slice(2, 8);
+    const id = `path_${suffix}`;
+    const ref: ColliderRef = { backend: 'json', relPath, section, id };
+    const points = draft.points.map((p) => ({ x: p.x, y: p.y }));
+
+    const newPath: ScenePath = {
+      uid: `web:paths:${id}`,
+      ref,
+      name: id,
+      origin: { x: 0, y: 0 },
+      points,
+      hasBezierHandles: false,
+      editable: true,
+    };
+    setScene((s) => (s ? { ...s, paths: [...s.paths, newPath] } : s));
+    setSelectedPath({ uid: newPath.uid, pointIdx: null });
+    commitOps(
+      [{ kind: 'add-path', relPath, section, entry: { id, points } }],
+      [{ kind: 'remove-path', relPath, section, id }],
+      `add ${id}`,
+    );
+  }
+
   // ESC cancels an in-progress draft AND disarms add mode. We don't bother
   // removing the mousemove/mouseup window listeners — they self-bail when
   // dragRef is null and clean themselves up on the next mouseup.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return;
-      if (draftShape) setDraftShape(null);
-      if (
-        dragRef.current?.kind === 'add-rect-draft' ||
-        dragRef.current?.kind === 'add-circle-draft'
-      ) {
-        dragRef.current = null;
+      if (e.key === 'Escape') {
+        if (draftShape) setDraftShape(null);
+        if (
+          dragRef.current?.kind === 'add-rect-draft' ||
+          dragRef.current?.kind === 'add-circle-draft'
+        ) {
+          dragRef.current = null;
+        }
+        if (addShapeKind) setAddShapeKind(null);
+        if (pathDraft) {
+          setPathDraft(null);
+          setPathDraftCursor(null);
+        }
+        return;
       }
-      if (addShapeKind) setAddShapeKind(null);
+      if (!pathDraft) return;
+      // Enter / Space = commit. Backspace = pop last point.
+      const active = document.activeElement as HTMLElement | null;
+      const inEditable =
+        !!active &&
+        (/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.isContentEditable);
+      if (inEditable) return;
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commitPathDraft();
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        setPathDraft({ points: pathDraft.points.slice(0, -1) });
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [draftShape, addShapeKind]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftShape, addShapeKind, pathDraft]);
 
   // -------- Add prop (from picker modal) --------
   //
@@ -1738,6 +1850,42 @@ export function SceneEditor(props: Props) {
               </button>
             </>
           )}
+          {mode === 'paths' && props.relPath.toLowerCase().endsWith('.json') && (
+            pathDraft ? (
+              <>
+                <button
+                  className="btn btn-sm"
+                  title="Finish path (Enter)"
+                  onClick={commitPathDraft}
+                  disabled={pathDraft.points.length < 2}
+                >
+                  finish ({pathDraft.points.length} pt)
+                </button>
+                <button
+                  className="btn btn-sm btn-ghost"
+                  title="Cancel (Esc)"
+                  onClick={() => {
+                    setPathDraft(null);
+                    setPathDraftCursor(null);
+                  }}
+                >
+                  cancel
+                </button>
+              </>
+            ) : (
+              <button
+                className="btn btn-sm"
+                title="Click in canvas to place each waypoint, Enter to finish"
+                onClick={() => {
+                  setPathDraft({ points: [] });
+                  setSelectedPath(null);
+                }}
+                disabled={!scene}
+              >
+                + path
+              </button>
+            )
+          )}
           <SaveBadge state={savingState} error={saveError} />
           <button
             className="btn btn-sm btn-ghost"
@@ -1765,6 +1913,18 @@ export function SceneEditor(props: Props) {
           data-mode={mode}
           onMouseDown={onMouseDown}
           onWheel={onWheel}
+          onMouseMove={(e) => {
+            // Path-draft rubber band: track cursor in world coords. Cheap
+            // because pathDraft is null in the common case so we early-bail
+            // before any work.
+            if (!pathDraft) return;
+            setPathDraftCursor(clientToWorld(e));
+          }}
+          onDoubleClick={() => {
+            if (pathDraft && pathDraft.points.length >= 2) {
+              commitPathDraft();
+            }
+          }}
           style={{
             position: 'relative',
             overflow: 'hidden',
@@ -1772,7 +1932,7 @@ export function SceneEditor(props: Props) {
             cursor:
               dragRef.current?.kind === 'pan'
                 ? 'grabbing'
-                : mode === 'comments' || addShapeKind
+                : mode === 'comments' || addShapeKind || pathDraft
                 ? 'crosshair'
                 : 'default',
           }}
@@ -3437,6 +3597,43 @@ function applyOpToScene(s: SceneModel, op: SceneOp): SceneModel {
             c.ref.relPath === op.relPath &&
             c.ref.section === section &&
             c.ref.id === op.id
+          ),
+      ),
+    };
+  }
+  if (op.kind === 'add-path') {
+    const id = op.entry.id;
+    const section = op.section ?? 'paths';
+    const exists = s.paths.some(
+      (p) =>
+        p.ref.backend === 'json' &&
+        p.ref.relPath === op.relPath &&
+        p.ref.section === section &&
+        p.ref.id === id,
+    );
+    if (exists) return s;
+    const newPath: ScenePath = {
+      uid: `web:paths:${id}`,
+      ref: { backend: 'json', relPath: op.relPath, section, id },
+      name: id,
+      origin: { x: 0, y: 0 },
+      points: op.entry.points.map((pt) => ({ x: pt.x, y: pt.y })),
+      hasBezierHandles: false,
+      editable: true,
+    };
+    return { ...s, paths: [...s.paths, newPath] };
+  }
+  if (op.kind === 'remove-path') {
+    const section = op.section ?? 'paths';
+    return {
+      ...s,
+      paths: s.paths.filter(
+        (p) =>
+          !(
+            p.ref.backend === 'json' &&
+            p.ref.relPath === op.relPath &&
+            p.ref.section === section &&
+            p.ref.id === op.id
           ),
       ),
     };

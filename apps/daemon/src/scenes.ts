@@ -793,6 +793,10 @@ function applyOpsToJsonScene(opts: ApplyOpsOptions): ApplyOpsResult {
       applyJsonArrayAppend(opts.rootAbs, op.relPath, op.section ?? 'blockers', op.entry);
     } else if (op.kind === 'remove-collider') {
       applyJsonArrayRemove(opts.rootAbs, op.relPath, op.section ?? 'blockers', op.id);
+    } else if (op.kind === 'add-path') {
+      applyJsonArrayAppend(opts.rootAbs, op.relPath, op.section ?? 'paths', op.entry);
+    } else if (op.kind === 'remove-path') {
+      applyJsonArrayRemove(opts.rootAbs, op.relPath, op.section ?? 'paths', op.id);
     } else {
       throw new Error(
         `op '${(op as { kind: string }).kind}' not supported on .json scenes`,
