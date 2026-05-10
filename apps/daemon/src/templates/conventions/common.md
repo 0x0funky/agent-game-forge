@@ -222,9 +222,36 @@ Use **inline** when the entity appears once or twice and doesn't need shared sta
 
 These contain everything about: side-scroll segment counts, platform strategies, parallax layer organization, prop pack vs strip vs tilemap, sprite frame layouts per action, anchor + collision extraction, magenta cleanup, QC. **OGF defers to them.** If they contradict this file, the skill files win.
 
+## Phase 0 — install foundation seed (BEFORE Phase 1)
+
+Before running Phase 1 of your spec's phase plan, decide whether you can adopt a hand-built reference scaffold instead of generating every src/ and data/ file from scratch. This step takes 30 seconds and saves hours.
+
+**Procedure** (run exactly once at the start of phase execution):
+
+1. Read your spec to confirm the genre (Identity §1).
+
+2. Check whether `.ogf/foundation-seeds/<genre>/seed/` exists in the project. The genre folder name matches your `genres/<genre>.md` convention file's basename. Currently shipped seeds:
+   - `top-down-rpg` → full Sengoku-Era-derived 36-file scaffold
+   - (other genres: not yet — you build from scratch)
+
+3. **If the seed directory exists**:
+   a. Read `.ogf/foundation-seeds/<genre>/seed/SEED.md` first to understand what you're inheriting (universal vs starter vs recipe-fillable modules).
+   b. Copy every file from `.ogf/foundation-seeds/<genre>/seed/` into the project root, preserving the `src/` and `data/` subfolder structure. Overwrite the inline minimal stubs (index.html, src/game.js, etc.) that bootstrap dropped at create time.
+   c. The `data/*.json` catalog files ship empty — leave them empty for now; you'll fill them per spec during the relevant phases.
+   d. After copying, the project root should mirror the seed layout. Verify by listing `src/` (should be the seed's module count, not the bootstrap's 5 stubs).
+
+4. **If the seed directory does NOT exist for your genre**:
+   a. Build the file structure from scratch using the **Module architecture** rules (universal across all genres) and the **File layout** section in your `genres/<genre>.md` convention.
+   b. Aim for the same module count and split shape: 14–20 src files, config-vs-identity split, thin game.js entry, script-tag default loading.
+   c. Keep the bootstrap's inline 5 stubs as your starting point — extend rather than rewrite where the stub already covers the universal module.
+
+5. Whichever path you take, this is a **one-time procedure**. Do not revisit Phase 0 mid-game; only re-run if the user explicitly asks for a fresh scaffold.
+
+This MUST happen before any `generate2dsprite` or `generate2dmap` call — those skills read `data/levels.json` and similar files that the seed defines, and a missing seed means broken loaders later.
+
 ## Recipes — read at phase execution time
 
-`.ogf/recipes/<genre>/<recipe>.md` contains paste-ready code patterns + adaptation guidance for every common subsystem (battle FSM, menu navigation, dialogue box, save/load, progression, FX layer, etc.). Foundation seed gives you the universal scaffolding; recipes show you how to fill the genre-specific subsystem files.
+`.ogf/recipes/<genre>/<recipe>.md` contains paste-ready code patterns + adaptation guidance for every common subsystem (battle FSM, menu navigation, dialogue box, save/load, progression, FX layer, etc.). The Phase 0 foundation seed (when one exists for your genre) gives you the universal scaffolding; recipes show you how to fill the genre-specific subsystem files. When no seed exists for your genre, recipes are doubly important — they're the only proven-pattern reference you have.
 
 **Mandatory read points** (during phase execution):
 
