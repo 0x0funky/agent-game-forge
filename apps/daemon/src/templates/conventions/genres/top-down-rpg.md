@@ -266,6 +266,48 @@ Two options:
 
 Use the separate file when the level has organic shapes (curves around cliffs / water edges) that prop-bbox approximation gets wrong.
 
+#### Walkable-whitelist vs blocker-only — pick one strategy per level
+
+The runtime supports two collision philosophies. Choose ONE per level and stick with it. Mixing produces bugs where the player gets stuck in regions that are walkable per one rule but blocked per the other.
+
+**(A) Walkable whitelist** (`walkBounds[]` polygon) — Sengoku / Pokemon overworld pattern:
+```js
+isWalkable = inside(walkBounds) && !inside(blockers)
+```
+- One organic-shape polygon (walkBounds) carves out the **entire walkable area** of the level
+- `blockers[]` then chips out small "no-go" pockets inside the walkable region (shrine bodies, lantern footprints)
+- ✅ Best for irregular maps: cliff-edged routes, river-bordered villages, terraced hills, organic forest paths
+- ✅ One polygon replaces what would otherwise be 20-40 blocker rects ringing the playable area
+- ❌ More effort to author the initial polygon (8-15 vertices typical)
+- ❌ Polygon vertex editing in OGF Scenes tab is limited (move whole polygon yes, drag individual vertex no — Phase 4)
+
+**(B) Blocker-only** (no walkBounds) — Pokemon-indoor / rectangular-room pattern:
+```js
+isWalkable = !inside(blockers)
+// walkBounds empty → runtime defaults to entire mapSize
+```
+- Every "no-go" region needs an explicit blocker rect/circle
+- ✅ Simpler to author — only describe the obstacles
+- ✅ Each blocker is fully editable (drag, resize, delete) in OGF
+- ✅ Best for rectangular indoor rooms, grid-aligned town squares, dungeon chambers with straight walls
+- ❌ Outdoor maps with curved boundaries need 20+ blocker rects to ring the cliff edges — tedious
+
+**Decision matrix**:
+
+| Level type | Use |
+|---|---|
+| Outdoor route with cliffs / water / organic borders | **A (walkBounds)** |
+| Walled village square, regular building footprints | **B (blockers only)** |
+| Indoor room / dungeon hall | **B (blockers only)** |
+| Open battlefield with ring boundary | **A (walkBounds)** with single polygon ring |
+| Tightly-bounded interior with 1-2 obstacles | **B (blockers only)** |
+
+**Per-level field rule** — to keep the runtime + editor consistent:
+- Strategy A: sidecar has `walkBounds[]` (with polygons + maybe rects) AND optional `blockers[]` for inner pockets. Do NOT also fill `walkable[]` with the same data — pick one field name (`walkBounds` is preferred, runtime reads it).
+- Strategy B: sidecar has ONLY `blockers[]`. Omit `walkBounds` entirely — runtime then defaults to "walkable = entire mapSize minus blockers".
+
+**Convention default — runtime-driven**: the `src/collision.js` foundation already implements both strategies via the same `isWalkable()` function. The choice is purely a content decision per level. When unsure for a top-down RPG outdoor scene, **default to A**; for an indoor scene, **default to B**.
+
 > ⚠️ **Sidecar discipline — DO NOT mirror the level's `mapSize`/`spawn`/`zones` into the collision-map sidecar.**
 >
 > Past failure: agent wrote `data/boss_hall.json` (real level with bg + props) AND `data/boss_hall-collision-map.json` (sidecar). The sidecar carried `"mapSize": { "width": 1280, "height": 720 }`, `"spawn": {...}`, and `"zones": {...}` "for convenience". OGF's scene picker then offered the sidecar as a clickable scene; the user clicked it; the editor opened it (passes the mapSize-based level check) but rendered an empty canvas (no `background`, no `layers[]`, no `props[]`). Same field duplication also caused the runtime to read inconsistent values when level + sidecar drifted.

@@ -563,6 +563,91 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
     });
   });
 
+  // ---- Sidecar collision data (Sengoku top-down RPG pattern) ----
+  //
+  // Top-down RPG levels often store the bulk of collision in a separate
+  // file referenced by `collisionSource: "data/<scene>-collision-map.json"`.
+  // The runtime loads it at scene-enter time; without ALSO loading it
+  // here, the editor's Colliders + Zones tabs would silently miss every
+  // entry the agent wrote to the sidecar (rpg-gogogo, 2026 — user saw a
+  // green walkable polygon in Play but nothing in the editor's zones
+  // tab because walkBounds lives in the sidecar, not the main level).
+  //
+  // Each sidecar entry's ColliderRef points at the SIDECAR path (not the
+  // level), so subsequent move/resize ops write back to the right file
+  // and stay consistent with what the runtime reads.
+  const collisionSource =
+    typeof data.collisionSource === 'string' ? (data.collisionSource as string) : '';
+  if (collisionSource) {
+    const sidecarRel = collisionSource.replace(/^\.?\//, '');
+    const sidecarAbs = safeJoin(rootAbs, sidecarRel);
+    if (existsSync(sidecarAbs)) {
+      try {
+        const sidecar = JSON.parse(readFileSync(sidecarAbs, 'utf8')) as Record<string, unknown>;
+
+        const sidecarBlockers = Array.isArray(sidecar.blockers)
+          ? (sidecar.blockers as RectLike[])
+          : [];
+        sidecarBlockers.forEach((b, idx) => {
+          const shape = inferShapeFromEntry(b);
+          if (!shape) return;
+          const id = String(b.id ?? `sidecar_blocker_${idx}`);
+          const ref: ColliderRef = {
+            backend: 'json',
+            relPath: sidecarRel,
+            section: 'blockers',
+            id,
+          };
+          colliders.push({
+            uid: `web:sidecar-blockers:${id}`,
+            ref,
+            name: id,
+            kind: 'blocker',
+            position: entryCenterPosition(b),
+            shape,
+            editable: shape.kind !== 'polygon',
+          });
+        });
+
+        // walkBounds and walkable both exist in some sidecars (agent
+        // duplicates them for safety). Treat both as walkable zones —
+        // the editor shows them in the zones tab with neutral coloring.
+        for (const fieldName of ['walkBounds', 'walkable'] as const) {
+          const arr = Array.isArray(sidecar[fieldName])
+            ? (sidecar[fieldName] as RectLike[])
+            : [];
+          arr.forEach((b, idx) => {
+            const shape = inferShapeFromEntry(b);
+            if (!shape) return;
+            const id = String(b.id ?? `${fieldName}_${idx}`);
+            const ref: ColliderRef = {
+              backend: 'json',
+              relPath: sidecarRel,
+              section: fieldName,
+              id,
+            };
+            zones.push({
+              uid: `web:sidecar-${fieldName}:${id}`,
+              ref,
+              name: id,
+              zoneKind: 'unknown',
+              position: entryCenterPosition(b),
+              shape,
+              fields: { kind: 'walkable', source: 'sidecar' },
+              editable: shape.kind !== 'polygon',
+            });
+          });
+        }
+      } catch {
+        // Sidecar exists but failed to parse — surface as a note so the
+        // user sees something visible in the editor.
+        notes.push(
+          `collisionSource ${sidecarRel} failed to parse — colliders + walkBounds from the sidecar will not appear in the editor.`,
+        );
+      }
+    }
+  }
+
   // ---- Zones (named rect) ----
   const rawZones = isPlainObject(data.zones) ? (data.zones as Record<string, RectLike>) : null;
   if (rawZones) {
@@ -692,6 +777,20 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
     }
   }
 
+  // collidersJsonPath drives where the editor's "+ rect / + circle /
+  // + poly" tools write NEW colliders. When the level has a sidecar, the
+  // agent's convention is to put blockers there — so new editor-drawn
+  // colliders should join the sidecar too. Without this, new colliders
+  // would land in the main level JSON while existing ones live in the
+  // sidecar, producing inconsistent collision data on the next reload.
+  const sidecarRelForRoute =
+    typeof data.collisionSource === 'string'
+      ? (data.collisionSource as string).replace(/^\.?\//, '')
+      : '';
+  const sidecarExists =
+    sidecarRelForRoute.length > 0 && existsSync(safeJoin(rootAbs, sidecarRelForRoute));
+  const collidersJsonPathFinal = sidecarExists ? sidecarRelForRoute : relPath;
+
   const scene: SceneModel = {
     scenePath: relPath,
     rootName: typeof data.id === 'string' ? data.id : path.posix.basename(relPath, '.json'),
@@ -699,7 +798,7 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
     layers,
     props,
     colliders,
-    collidersJsonPath: relPath,
+    collidersJsonPath: collidersJsonPathFinal,
     zones,
     zonesJsonPath: relPath,
     paths: scenePaths,
