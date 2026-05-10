@@ -436,6 +436,57 @@ export function applyJsonSingleFieldEdit(
   writeFileSync(abs, lines.join(eol), 'utf8');
 }
 
+/** Patch a dict-keyed field — for level JSON shapes like
+ *  `"zones": { "wild_grass": { "x", "y", "w", "h", "event" } }` or
+ *  `"exits": { "to_boss": { "x", "y", "interactRadius", "target" } }`.
+ *
+ *  ColliderRef carries `section: "zones.wild_grass"` (parent.key) and
+ *  `id: "wild_grass"` for these. The level loader (web-scene.ts) emits
+ *  refs in this shape for every entry under `zones` and `exits`.
+ *
+ *  Implementation: whole-file JSON.parse + mutate + stringify. Multi-
+ *  line nested objects make the line-based patcher (applyJsonColliderEdit)
+ *  awkward, and these dicts are agent-generated so reformatting cost
+ *  is irrelevant. Other fields on the entry (event, target, etc.) are
+ *  preserved by the mutate-in-place. */
+export function applyJsonDictKeyedEdit(
+  rootAbs: string,
+  ref: ColliderRef & { backend: 'json' },
+  patch: { x?: number; y?: number; w?: number; h?: number; radius?: number; interactRadius?: number },
+): void {
+  const dotIx = ref.section.indexOf('.');
+  if (dotIx <= 0) {
+    throw new Error(
+      `applyJsonDictKeyedEdit: section must be "<parent>.<key>", got "${ref.section}"`,
+    );
+  }
+  const parent = ref.section.slice(0, dotIx);
+  const key = ref.section.slice(dotIx + 1);
+
+  const abs = path.join(rootAbs, ref.relPath);
+  const text = readFileSync(abs, 'utf8');
+  const json = JSON.parse(text) as Record<string, unknown>;
+
+  const dict = json[parent];
+  if (!dict || typeof dict !== 'object' || Array.isArray(dict)) {
+    throw new Error(`expected dict at "${parent}" in ${ref.relPath}`);
+  }
+  const entry = (dict as Record<string, unknown>)[key];
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    throw new Error(`dict-keyed entry "${key}" not found under "${parent}" in ${ref.relPath}`);
+  }
+  const target = entry as Record<string, unknown>;
+  if (patch.x !== undefined) target.x = patch.x;
+  if (patch.y !== undefined) target.y = patch.y;
+  if (patch.w !== undefined) target.w = patch.w;
+  if (patch.h !== undefined) target.h = patch.h;
+  if (patch.radius !== undefined) target.radius = patch.radius;
+  if (patch.interactRadius !== undefined) target.interactRadius = patch.interactRadius;
+
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  writeFileSync(abs, JSON.stringify(json, null, 2) + eol, 'utf8');
+}
+
 /** Patch a single collider/prop entry's fields in JSON text. Handles BOTH
  *  one-line entries (`{ "id": ..., "x": ..., ... }`) and pretty-printed
  *  multi-line objects. Walks the section's array, tracks brace depth per

@@ -12,6 +12,7 @@ import type {
 } from '@ogf/contracts';
 import {
   applyJsonColliderEdit,
+  applyJsonDictKeyedEdit,
   applyJsonSingleFieldEdit,
   findCollisionJsonPath,
   readJsonColliders,
@@ -761,25 +762,63 @@ function applyOpsToJsonScene(opts: ApplyOpsOptions): ApplyOpsResult {
         throw new Error(`resize-rect-collider on .json scene must use json ref`);
       }
       const ref = op.ref;
-      const colliders = readJsonColliders(opts.rootAbs, ref.relPath);
-      const target = colliders.find(
-        (c) => c.ref.backend === 'json' && c.ref.id === ref.id,
-      );
-      if (target && target.shape.kind === 'rect') {
-        const tlx = target.position.x - op.w / 2;
-        const tly = target.position.y - op.h / 2;
-        applyJsonColliderEdit(opts.rootAbs, ref, {
-          x: tlx,
-          y: tly,
+      // Dict-keyed (zones.X / exits.X): preserve visual center across the
+      // resize by reading current x/y/w/h, computing the old center, and
+      // writing new top-left + size around that center.
+      if (ref.section.includes('.')) {
+        const dotIx = ref.section.indexOf('.');
+        const parent = ref.section.slice(0, dotIx);
+        const key = ref.section.slice(dotIx + 1);
+        const abs = safeJoin(opts.rootAbs, ref.relPath);
+        const json = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+        const dict = json[parent];
+        const entry =
+          dict && typeof dict === 'object' && !Array.isArray(dict)
+            ? ((dict as Record<string, unknown>)[key] as Record<string, unknown> | undefined)
+            : undefined;
+        const oldX = typeof entry?.x === 'number' ? (entry.x as number) : 0;
+        const oldY = typeof entry?.y === 'number' ? (entry.y as number) : 0;
+        const oldW = typeof entry?.w === 'number' ? (entry.w as number) : 0;
+        const oldH = typeof entry?.h === 'number' ? (entry.h as number) : 0;
+        const cx = oldX + oldW / 2;
+        const cy = oldY + oldH / 2;
+        applyJsonDictKeyedEdit(opts.rootAbs, ref, {
+          x: cx - op.w / 2,
+          y: cy - op.h / 2,
           w: op.w,
           h: op.h,
         });
+      } else {
+        const colliders = readJsonColliders(opts.rootAbs, ref.relPath);
+        const target = colliders.find(
+          (c) => c.ref.backend === 'json' && c.ref.id === ref.id,
+        );
+        if (target && target.shape.kind === 'rect') {
+          const tlx = target.position.x - op.w / 2;
+          const tly = target.position.y - op.h / 2;
+          applyJsonColliderEdit(opts.rootAbs, ref, {
+            x: tlx,
+            y: tly,
+            w: op.w,
+            h: op.h,
+          });
+        }
       }
     } else if (op.kind === 'resize-circle-collider') {
       if (op.ref.backend !== 'json') {
         throw new Error(`resize-circle-collider on .json scene must use json ref`);
       }
-      applyJsonColliderEdit(opts.rootAbs, op.ref, { radius: op.r });
+      // Dict-keyed exits store circle as `interactRadius`, not `radius`.
+      // Web-scene loader maps either field into shape.kind === 'circle'.
+      // Write back via dict-keyed editor so we hit the right object key.
+      if (op.ref.section.includes('.')) {
+        applyJsonDictKeyedEdit(opts.rootAbs, op.ref, {
+          radius: op.r,
+          interactRadius: op.r,
+        });
+      } else {
+        applyJsonColliderEdit(opts.rootAbs, op.ref, { radius: op.r });
+      }
     } else if (op.kind === 'move-path-point') {
       if (op.ref.backend !== 'json') {
         throw new Error(`move-path-point on .json scene must use json ref`);
@@ -917,6 +956,39 @@ function applyJsonColliderEditForMove(
   // Single-object field (e.g. "heroSpawn": {x, y}) — patch directly.
   if (ref.singleField) {
     applyJsonSingleFieldEdit(rootAbs, ref, { x: centerPos.x, y: centerPos.y });
+    return;
+  }
+
+  // Dict-keyed sections like "zones.wild_grass" or "exits.to_boss" — the
+  // entry sits at json[parent][key] and may carry x/y/w/h or just x/y +
+  // interactRadius. Read the current entry to decide whether to translate
+  // center→top-left (rect) or write x/y as-is (circle/point).
+  // (rpg-gogogo, 2026: encounter zones were marked editable:false in the
+  // loader because no dict-keyed writer existed — user couldn't drag the
+  // grass encounter zone to align it with the map.)
+  if (ref.section.includes('.')) {
+    const dotIx = ref.section.indexOf('.');
+    const parent = ref.section.slice(0, dotIx);
+    const key = ref.section.slice(dotIx + 1);
+    const abs = safeJoin(rootAbs, ref.relPath);
+    const json = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+    const dict = json[parent];
+    const entry =
+      dict && typeof dict === 'object' && !Array.isArray(dict)
+        ? ((dict as Record<string, unknown>)[key] as Record<string, unknown> | undefined)
+        : undefined;
+    const w = typeof entry?.w === 'number' ? (entry.w as number) : 0;
+    const h = typeof entry?.h === 'number' ? (entry.h as number) : 0;
+    if (w > 0 && h > 0) {
+      // Rect — same top-left convention as blockers. Translate center back.
+      applyJsonDictKeyedEdit(rootAbs, ref, {
+        x: centerPos.x - w / 2,
+        y: centerPos.y - h / 2,
+      });
+    } else {
+      // Point or circle — center IS the stored position.
+      applyJsonDictKeyedEdit(rootAbs, ref, { x: centerPos.x, y: centerPos.y });
+    }
     return;
   }
 

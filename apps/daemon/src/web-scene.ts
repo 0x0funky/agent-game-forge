@@ -583,7 +583,9 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
         position: entryCenterPosition(z),
         shape,
         fields: {},
-        editable: false, // dict-keyed zones need a dedicated writer (later)
+        // Editable since dict-keyed writer (applyJsonDictKeyedEdit) landed.
+        // ref.section is `zones.<id>` so the writer knows the parent + key.
+        editable: true,
       });
     }
   }
@@ -609,7 +611,10 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
           ? { kind: 'circle', r: Number(ex.interactRadius) }
           : { kind: 'point' },
         fields: targetField ? { target: targetField } : {},
-        editable: false, // dict-keyed; needs dedicated writer later
+        // Editable: move works for point + circle; resize works for circle
+        // (writes both `radius` and `interactRadius` so the runtime field
+        // gets updated whichever name it expects).
+        editable: true,
       });
     }
   }
