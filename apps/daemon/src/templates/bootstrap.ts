@@ -98,45 +98,58 @@ function vendoredConventionFiles(): ScaffoldFile[] {
   return out;
 }
 
-// ── Vendored foundation seed (Sengoku-Era-ogf-derived starter code) ────
+// ── Vendored foundation seeds (per-genre starter scaffolds) ────────────
 //
 // Foundation seed = the richer scaffolding extracted from a known-good
-// reference project (D:/Sengoku-Era-ogf). Replaces the older 5-stub
-// inline WEB_* templates with the full 20-module / 14-data-file
-// vanilla-JS RPG starter. See templates/foundation/seed/SEED.md for
-// the universal-vs-starter-vs-recipe contract.
+// reference project. Each genre that has a hand-built reference gets its
+// own seed under foundation/<genre>/seed/. Currently shipped:
+//   foundation/top-down-rpg/seed/   (Sengoku-Era-ogf-derived, 36 files)
 //
-// Files copied into project root preserving the seed/ tree shape:
-//   seed/index.html     → project/index.html
-//   seed/styles.css     → project/styles.css
-//   seed/src/*.js       → project/src/*.js (20 modules)
-//   seed/data/*.json    → project/data/*.json (configs + empty catalogs)
-//   seed/SEED.md        → project/SEED.md (architecture doc for agent)
-const FOUNDATION_SEED_DIR = path.resolve(
+// At project create time we DO NOT copy these to the project root —
+// the genre is unknown until the spec is approved. Instead we stage
+// every available seed under .ogf/foundation-seeds/<genre>/seed/. The
+// agent picks its own genre's seed during Phase 0 (see
+// conventions/common.md) and either copies it to root verbatim or, when
+// no seed exists for the chosen genre, builds the file structure from
+// scratch using the module-architecture rules in the conventions.
+const FOUNDATION_DIR = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   'foundation',
-  'seed',
 );
 
-/** Walk the foundation seed and produce ScaffoldFile entries rooted at
- *  the project root (preserving src/ and data/ subfolders). */
+/** Walk every foundation/<genre>/seed/ tree and produce ScaffoldFile
+ *  entries rooted at .ogf/foundation-seeds/<genre>/seed/ — preserving
+ *  the inner src/ and data/ subfolders. Skips the legacy flat layout
+ *  (foundation/seed/) if it still exists from an in-progress migration. */
 function vendoredFoundationSeedFiles(): ScaffoldFile[] {
-  if (!existsSync(FOUNDATION_SEED_DIR)) return [];
+  if (!existsSync(FOUNDATION_DIR)) return [];
   const out: ScaffoldFile[] = [];
-  const walk = (absDir: string, relSegments: string[]): void => {
-    for (const entry of readdirSync(absDir)) {
-      const absChild = path.join(absDir, entry);
-      const stat = statSync(absChild);
-      if (stat.isDirectory()) {
-        walk(absChild, [...relSegments, entry]);
-        continue;
+  for (const genre of readdirSync(FOUNDATION_DIR)) {
+    const genreDir = path.join(FOUNDATION_DIR, genre);
+    if (!statSync(genreDir).isDirectory()) continue;
+    const seedDir = path.join(genreDir, 'seed');
+    if (!existsSync(seedDir) || !statSync(seedDir).isDirectory()) continue;
+    const walk = (absDir: string, relSegments: string[]): void => {
+      for (const entry of readdirSync(absDir)) {
+        const absChild = path.join(absDir, entry);
+        const stat = statSync(absChild);
+        if (stat.isDirectory()) {
+          walk(absChild, [...relSegments, entry]);
+          continue;
+        }
+        const projectRel = [
+          '.ogf',
+          'foundation-seeds',
+          genre,
+          'seed',
+          ...relSegments,
+          entry,
+        ].join('/');
+        out.push({ rel: projectRel, body: readFileSync(absChild, 'utf8') });
       }
-      // Bundle every regular file under seed/ — html, css, js, json, md.
-      const projectRel = [...relSegments, entry].join('/');
-      out.push({ rel: projectRel, body: readFileSync(absChild, 'utf8') });
-    }
-  };
-  walk(FOUNDATION_SEED_DIR, []);
+    };
+    walk(seedDir, []);
+  }
   return out;
 }
 
@@ -530,14 +543,14 @@ node_modules/
 `;
 
 function webFiles(name: string, conventions: string): ScaffoldFile[] {
-  // OGF v2: foundation seed (Sengoku-Era-ogf-derived ~36 files) replaces
-  // the older 5-file inline scaffold. If the seed isn't bundled in this
-  // build (foundation/ folder missing), fall back to the inline stubs
-  // so older OGF binaries still produce a runnable shell.
-  const seedFiles = vendoredFoundationSeedFiles();
-  const useSeed = seedFiles.length > 0;
-
-  const inlineScaffold: ScaffoldFile[] = useSeed ? [] : [
+  // OGF v2: project root always gets the minimal inline scaffold (5
+  // tiny files) so dev mode runs immediately. The full per-genre seeds
+  // are staged under .ogf/foundation-seeds/<genre>/seed/ and the agent
+  // copies the matching one to root during Phase 0 (see
+  // conventions/common.md). For genres without a seed, the agent builds
+  // the file structure from scratch using the module-architecture rules
+  // and the inline stubs as a runnable starting point.
+  return [
     { rel: 'index.html', body: WEB_INDEX(name) },
     { rel: 'styles.css', body: WEB_STYLES },
     { rel: 'src/game.js', body: WEB_GAME_JS },
@@ -547,18 +560,12 @@ function webFiles(name: string, conventions: string): ScaffoldFile[] {
     { rel: 'src/assets.js', body: WEB_ASSETS_JS },
     { rel: 'data/levels.json', body: WEB_LEVELS_JSON },
     { rel: 'data/level1.json', body: WEB_LEVEL1_JSON },
-  ];
-
-  return [
-    ...seedFiles,           // foundation seed (when available)
-    ...inlineScaffold,      // legacy fallback (only when seed missing)
     { rel: '.gitignore', body: WEB_GITIGNORE },
-    // .ogf/conventions.md kept as a thin index that points the agent at
-    // the new genre-aware structure under .ogf/conventions/.
     { rel: '.ogf/conventions.md', body: conventions },
     ...vendoredConventionFiles(),
     ...vendoredRecipeFiles(),
     ...vendoredSkillFiles(),
+    ...vendoredFoundationSeedFiles(), // staged under .ogf/foundation-seeds/
     { rel: 'assets/maps/.gitkeep', body: '' },
     { rel: 'assets/sprites/.gitkeep', body: '' },
   ];
