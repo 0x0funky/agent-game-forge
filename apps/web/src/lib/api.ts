@@ -213,18 +213,81 @@ export const discardPack = (req: import('@ogf/contracts').DiscardPackRequest) =>
     body: JSON.stringify(req),
   });
 
-// Scenes (.tscn)
-export const fetchScene = (projectPath: string, relPath: string) =>
-  jsonFetch<LoadSceneResponse>(
+// Scenes (.tscn / web JSON)
+//
+// fetchScene + applySceneOps are coordinated through a module-level
+// in-flight write Map. This solves a recurring "tab switch loses my edit"
+// race:
+//
+//   1. user drags a prop, mouseup commits, scheduleSave debounces 50ms
+//   2. user clicks a different tab → SceneEditor unmounts
+//   3. cleanup effect fires flushSave (fire-and-forget POST)
+//   4. user clicks back → SceneEditor remounts → fetchScene fires
+//   5. without coordination, the GET races the POST: if GET wins, the
+//      response is the OLD JSON and the user sees their edit "revert"
+//
+// The Map stores the in-flight POST Promise per `projectPath:relPath`.
+// fetchScene awaits any pending write for the same key before issuing
+// the GET. New POSTs chain after pending ones so two saves to the same
+// scene serialize on the daemon's filesystem write order.
+const inFlightSceneWrites = new Map<string, Promise<unknown>>();
+
+function sceneKey(projectPath: string, relPath: string): string {
+  return `${projectPath}::${relPath}`;
+}
+
+export async function fetchScene(
+  projectPath: string,
+  relPath: string,
+): Promise<LoadSceneResponse> {
+  // Wait for any in-flight write to the same scene before reading.
+  // Without this, a tab-switch-quickly flow can read stale JSON.
+  const pending = inFlightSceneWrites.get(sceneKey(projectPath, relPath));
+  if (pending) {
+    try {
+      await pending;
+    } catch {
+      // The pending write failed — read what's on disk anyway.
+    }
+  }
+  return jsonFetch<LoadSceneResponse>(
     `/api/scenes/load?projectPath=${encodeURIComponent(projectPath)}&relPath=${encodeURIComponent(relPath)}`,
   );
+}
 
-export const applySceneOps = (req: ApplySceneOpsRequest) =>
-  jsonFetch<ApplySceneOpsResponse>('/api/scenes/save', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(req),
+export async function applySceneOps(
+  req: ApplySceneOpsRequest,
+): Promise<ApplySceneOpsResponse> {
+  const key = sceneKey(req.projectPath, req.relPath);
+  // Chain after any earlier in-flight write so saves to the same scene
+  // are serialized in submit order. Without chaining, two near-
+  // simultaneous saves can race on the daemon's filesystem write and
+  // the later op's read-modify-write cycle (e.g. add-prop) operates on
+  // the pre-first-write JSON, losing the first op.
+  const prev = inFlightSceneWrites.get(key);
+  const promise = (async () => {
+    if (prev) {
+      try {
+        await prev;
+      } catch {
+        // Earlier write failed — we still attempt our own write.
+      }
+    }
+    return jsonFetch<ApplySceneOpsResponse>('/api/scenes/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+  })();
+  inFlightSceneWrites.set(key, promise);
+  // Self-cleanup so the Map doesn't grow unbounded across long sessions.
+  promise.finally(() => {
+    if (inFlightSceneWrites.get(key) === promise) {
+      inFlightSceneWrites.delete(key);
+    }
   });
+  return promise;
+}
 
 // Godot runner
 export const detectGodot = () => jsonFetch<GodotDetectResponse>('/api/godot/detect');

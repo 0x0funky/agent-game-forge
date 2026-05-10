@@ -4522,8 +4522,25 @@ function propBounds(p: SceneProp, bank: ImageBank) {
   // Without honoring this, big background sprites that Codex sets to
   // centered=false (per OGF Godot conventions) appear shifted up-left by
   // (w/2, h/2) in the OGF Scenes tab while Play renders them correctly.
+  //
+  // Web bottom-anchored caveat: the loader sets spriteOffset = { 0, -h/2 }
+  // using the JSON's STORED h, so feet land at position.y at scale=1. But
+  // during a live scale drag we update p.scale and not the offset, so by
+  // the time we draw the feet drift down (or up) by displaySize.y *
+  // (scale.y - 1) / 2 — and then snap back on save+reload because the
+  // loader recomputes offset from the new stored h. To keep feet rigid
+  // through the drag, recompute the y offset here from the VISUAL h.
+  // Detect web bottom-anchored by (displaySize set AND offset.x = 0 AND
+  // offset.y is negative — only the loader writes that pattern). Godot
+  // props with custom Sprite2D positions are unaffected.
+  const isWebBottomAnchored =
+    p.displaySize != null &&
+    p.spriteOffset.x === 0 &&
+    p.spriteOffset.y <= 0;
   const ax = p.position.x + p.spriteOffset.x;
-  const ay = p.position.y + p.spriteOffset.y;
+  const ay = isWebBottomAnchored
+    ? p.position.y - h / 2
+    : p.position.y + p.spriteOffset.y;
   if (p.centered === false) {
     return { x: ax, y: ay, w, h };
   }
