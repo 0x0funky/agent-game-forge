@@ -142,51 +142,88 @@ function updateCamera(player, dt) {
 
 **Anti-pattern**: tracking player Y rigidly during jumps — Keren calls this "Y-axis chaos". Use platform-snap (only re-center on ground).
 
-## Background — parallax via scroll factor + tileable image OR multi-layer
+## Background — 1280×720 tileable strips + repeatX (4 layers)
 
-Two canonical implementations:
+Canonical implementation: **every parallax layer is a 1280×720 (or 1664×720 — must be ÷16 for gpt-image-2) tileable strip**, the runtime tiles each horizontally via `repeatX: true` at its own scroll speed. NO mega-wide single images, NO post-stretch.
 
-### A. Single tileable image per layer (preferred for sky/cloud-style infinite layers)
-
-The layer image is small (1024-1536 wide). At render time, draw it twice to cover any horizontal extent, with `scrollFactor`:
-
-```js
-function drawParallaxLayer(ctx, img, scrollFactor) {
-  const offsetX = -((camera.x * scrollFactor) % img.width);
-  ctx.drawImage(img, offsetX, 0);
-  ctx.drawImage(img, offsetX + img.width, 0); // second copy for the gap
-}
-```
-
-**Anti-pattern**: clamping `srcX` to `[0, img.width - canvas.width]` — when player walks back past the clamp threshold, the layer "snaps". And distant layers (low scrollFactor) barely move because their max srcX is small. **Use modulo wrap, not clamp.**
-
-### B. Multi-segment per layer (when each segment has unique terrain)
-
-For mid/near layers where each camera-width has different content:
-
-```js
+```json
 "layers": [
-  { "id": "mid_bg", "tileMode": "segments",
-    "segmentImages": ["assets/maps/level1/mid_seg1.png", ".../mid_seg2.png"] },
-  ...
+  { "id": "sky",     "image": "assets/maps/lvl1/sky.png",     "parallax": 0.04, "zIndex": 0, "repeatX": true },
+  { "id": "far_bg",  "image": "assets/maps/lvl1/far_bg.png",  "parallax": 0.20, "zIndex": 1, "repeatX": true },
+  { "id": "mid_bg",  "image": "assets/maps/lvl1/mid_bg.png",  "parallax": 0.50, "zIndex": 2, "repeatX": true },
+  { "id": "near_bg", "image": "assets/maps/lvl1/near_bg.png", "parallax": 0.85, "zIndex": 3, "repeatX": true }
 ]
 ```
 
-Renderer draws each segment at its own X offset, all with the same scrollFactor.
+### Critical: per-layer transparency
 
-### Recommended layer setup (per `generate2dmap` defaults)
+For parallax depth to be visible, layers above sky MUST have transparent regions so the layers behind show through. Implementation = magenta chroma-key (same convention as sprites):
 
-| Layer | scrollFactor | Tile mode | Notes |
-|---|---|---|---|
-| sky | 0.0–0.15 | tileable single image | doesn't move; just decorative |
-| far_bg | 0.2–0.35 | tileable single OR segments | mountains, distant terrain |
-| mid_bg | 0.5–0.65 | segments preferred | actual scenery the player sees passing |
-| near_bg | 0.8–0.9 | segments | foreground silhouettes / set dressing |
-| foreground_overlay | 1.05+ | static placement | optional — ferns, lanterns occluding the player |
+| Layer | Opaque/Transparent | Magenta convention |
+|---|---|---|
+| sky | OPAQUE | NO magenta — entirely filled |
+| far_bg | TRANSPARENT above silhouette | YES — #FF00FF above silhouette + in gaps |
+| mid_bg | TRANSPARENT outside silhouette | YES — same |
+| near_bg | TRANSPARENT outside silhouette | YES — same |
 
-3 layers is fine for most projects. 5 is the max before image_gen budget burns.
+**The first agent attempt almost always gets this wrong** — generates 4 opaque scenes from 4 viewpoints and stacks them. Only near_bg (top zIndex) shows; parallax effect is invisible. Use the magenta-bg convention from sprites for far/mid/near.
 
-Reference: [Phaser parallax TileSprites tutorial](https://phaser.io/news/2019/06/parallax-scrolling-with-tilesprites-tutorial), [Ourcade parallax post](https://blog.ourcade.co/posts/2020/add-pizazz-parallax-scrolling-phaser-3/).
+### Post-processing pipeline
+
+After image_gen produces each layer (typically 1672×941 raw), pipe through:
+
+```bash
+# Sky (keep opaque):
+python .agents/skills/generate2dmap/scripts/process_parallax_layer.py \
+  --input raw-sky.png --output assets/maps/lvl1/sky.png --keep-magenta
+
+# Far / mid / near (chroma-key magenta → transparent):
+python .agents/skills/generate2dmap/scripts/process_parallax_layer.py \
+  --input raw-far.png --output assets/maps/lvl1/far_bg.png
+```
+
+Script does: LANCZOS downscale to 1280×720 (16:9 → 16:9, no aspect distortion) + chroma-key + edge-fringe flood-fill + seam diagnostic.
+
+### Runtime renderer (already in seed)
+
+`src/parallax.js`:
+```js
+function drawParallax(ctx, level) {
+  const layers = (level.layers || []).slice().sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+  for (const layer of layers) {
+    const img = assetCache.images.get(layer.image);
+    if (!img || img instanceof Promise) continue;
+    const scroll = layer.parallax ?? 1;
+    ctx.save();
+    ctx.globalAlpha = layer.opacity ?? 1;
+    if (layer.repeatX) {
+      const offset = -((state.camera.x * scroll) % img.width);
+      for (let x = offset - img.width; x < VIEW.w + img.width; x += img.width) {
+        ctx.drawImage(img, Math.round(x), 0, img.width, VIEW.h);
+      }
+    } else {
+      // Non-repeating: full-width single image
+      ctx.drawImage(img, worldToScreenX(0, scroll), worldToScreenY(0, scroll), level.mapSize.width, level.mapSize.height);
+    }
+    ctx.restore();
+  }
+}
+```
+
+`repeatX: true` does modulo wrap — never clamps, never snaps when player walks back. Distant layers (low parallax) barely scroll, near layers scroll fast. All from one 1280-wide image per layer.
+
+### Recommended parallax values
+
+| Layer | parallax | Notes |
+|---|---|---|
+| sky | 0.02-0.06 | almost static — distant clouds / sky |
+| far_bg | 0.15-0.25 | distant mountains, far city silhouette |
+| mid_bg | 0.40-0.55 | mid-distance buildings, trees, structures |
+| near_bg | 0.75-0.95 | foreground silhouettes, grass, fences |
+
+Avoid `parallax: 1.0` — that's the same speed as foreground platforms, defeats the parallax illusion.
+
+**For complete prompts + per-layer authoring guide, see `recipes/side-scroll/parallax-layers.md`**.
 
 ## Platforms — tile library, NEVER stretch
 

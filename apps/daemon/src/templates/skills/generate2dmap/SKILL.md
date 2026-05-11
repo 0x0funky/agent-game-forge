@@ -29,7 +29,7 @@ Use `map_mode` as the first decision. It is a product-level preset that chooses 
 
 - `tile_mode`: editable tile/grid maps for RPGs, monster-taming games, platformers, tactical maps, factory games, and engines/editors that already use tiles. Default axes: `tilemap` or `layered_tilemap` + `interactive_scene_objects + scene_hooks` + `tile_collision + trigger_zones`.
 - `scene_mode`: base map plus separate props for tower defense, survivors-like arenas, cozy demos, top-down adventure scenes, and visual showcase maps. Default axes: `layered_raster` + `separate_props` or `y_sorted_props + interactive_scene_objects + scene_hooks` + `precise_shapes + trigger_zones`.
-- `side_scroll_mode`: parallax side-scroller stages for action platformers, runners, Metroidvania rooms, side-view shooters, and beat-em-up stages. Default axes: `parallax_layers` + `platform_objects + interactive_scene_objects + foreground_occluders + scene_hooks` + `precise_shapes`.
+- `side_scroll_mode`: parallax side-scroller stages for action platformers, runners, Metroidvania rooms, side-view shooters, and beat-em-up stages. Default axes: `parallax_layers` + `platform_objects + interactive_scene_objects + foreground_occluders + scene_hooks` + `precise_shapes`. **Parallax layers MUST be 1280×720 tileable strips with magenta-bg transparency for far/mid/near layers (sky stays opaque)** — see "Parallax layer authoring" section below and `recipes/side-scroll/parallax-layers.md`.
 - `grid_mode`: rule-heavy grid scenes for tactical RPGs, factory/automation games, board/card battlers, build grids, and terrain-cost maps. Default axes: `layered_tilemap` or `tilemap` + `interactive_scene_objects + scene_hooks` + `tile_collision` or grid metadata.
 - `room_chunk_mode`: modular rooms/chunks for roguelikes, Metroidvania rooms, dungeon rooms, and procedural level assembly. Default axes: `layered_tilemap` or `parallax_layers` or `layered_raster` + object layers + exits/connection metadata + collision.
 - `baked_scene_mode`: fixed battle backgrounds, title/menu screens, boss-room concept art, visual novel scenes, point-and-click backgrounds, or other explicitly flat/non-editable scenes. Default axes: `baked_raster` + `none` or `coarse_shapes`.
@@ -265,6 +265,47 @@ An in-world reference mockup is never the final deliverable by itself. After gen
 Reference-only output is incomplete for any playable map, layered map with props, side-view stage, engine scene, or request that asks for separate props/editable objects. Only stop at a reference mockup if the user explicitly asks for a reference-only concept image.
 
 For prop packs or object packs generated after a reference mockup, the prompt must be derived from the visible reference mockup and original base/background, not from memory or filenames. It should list the exact objects being generated and preserve the art style, lighting, perspective, and scale cues from the original base/background.
+
+## Parallax layer authoring (side-scroll)
+
+When `map_mode: side_scroll_mode` produces `parallax_layers`, generate each layer as a 1280×720 (or 1664×720 — must be ÷16 for gpt-image-2) **tileable strip**, NOT a single full-mapSize-wide image. The runtime tiles each layer horizontally via `repeatX: true` to fill any level width, so generation cost stays bounded regardless of how long the level is.
+
+**Per-layer contract** — 4 layers minimum:
+
+| Layer | Size | Opacity | Magenta? | parallax | Content |
+|---|---|---|---|---|---|
+| `sky` | 1280×720 | OPAQUE | NO — prompt explicitly forbids magenta | 0.02-0.06 | clouds, gradient, stars, sunset |
+| `far_bg` | 1280×720 | TRANSPARENT above silhouette | YES — entire frame outside silhouette = #FF00FF | 0.15-0.25 | distant mountains / city horizon |
+| `mid_bg` | 1280×720 | TRANSPARENT outside silhouette | YES — same convention | 0.40-0.55 | mid-distance buildings / trees |
+| `near_bg` | 1280×720 | TRANSPARENT outside silhouette | YES — same convention | 0.75-0.95 | foreground silhouettes / grass / fence |
+
+**Why magenta for far/mid/near**: 4 stacked opaque images = only the top one (near_bg) shows. Parallax depth requires the upper layers to be transparent above their silhouette line so the layers BEHIND show through.
+
+**Tileable requirement**: leftmost pixel column must visually match rightmost pixel column so the image tiles seamlessly as the camera scrolls. Tile-seam stringency is proportional to parallax speed: near_bg seams will be obvious; sky seams almost never are.
+
+**Post-processing each layer**:
+
+```bash
+# For far/mid/near (default — chroma-key magenta to transparent):
+python .agents/skills/generate2dmap/scripts/process_parallax_layer.py \
+  --input <raw image_gen output path> \
+  --output assets/maps/<level_id>/<layer_id>.png
+
+# For sky (no chroma-key — keep opaque):
+python .agents/skills/generate2dmap/scripts/process_parallax_layer.py \
+  --input <raw image_gen output path> \
+  --output assets/maps/<level_id>/sky.png \
+  --keep-magenta
+```
+
+The script:
+1. Resizes raw image_gen output (typically 1672×941) to 1280×720 via LANCZOS — clean 16:9 → 16:9 downscale, no aspect distortion.
+2. (Unless `--keep-magenta`) chroma-keys magenta pixels + flood-fills the magenta fringe so anti-aliasing doesn't leave pink edges.
+3. Diagnostic: prints left-vs-right edge color distance so the agent can detect non-tileable output and regenerate if needed.
+
+**For prompts + complete recipe**, see `.ogf/recipes/side-scroll/parallax-layers.md`.
+
+> ⚠️ **DO NOT** generate a single 5120×720 (or any full-mapSize-wide) parallax layer. The raw image_gen output is ~1672×941 — upscaling to 5120 produces blurry, aspect-distorted images. ALWAYS tile via repeatX from a 1280-wide native source. (test-2d-scroll-game, 2026.)
 
 ## Side-Scroll Stage Segments
 
