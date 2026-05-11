@@ -218,20 +218,28 @@ Each of these has bitten previous OGF test projects. Avoid by following the patt
 
 ## Recommended module split (side-scroll)
 
-Per `common.md` "Module architecture (universal)", every project gets the universal modules. Side-scroll adds these on top:
+**Phase 0** installs the side-scroll foundation seed (see common.md §"Phase 0 — install foundation seed"). Side-scroll seed ships 22 modules with the layout below — adopt verbatim from `.ogf/foundation-seeds/side-scroll/seed/` rather than re-deriving:
+
+Per `common.md` "Module architecture (universal)", every project gets the universal modules. Side-scroll adds these on top, with entity code split into `src/entities/`:
 
 | Module | Responsibility | Approx LOC |
 |---|---|---|
-| `src/physics.js` | Gravity, jump arc integration, ground/wall checks, terminal velocity | 150-300 |
-| `src/platforms.js` | Platform rect collision (one-way / solid), ladder/rope, moving platforms | 200-400 |
-| `src/player-fsm.js` | State machine: idle / run / jump / fall / attack / wall-cling / hurt | 300-500 |
-| `src/attack.js` | Player attack hitboxes, slash arc timing, projectile spawn | 150-300 |
-| `src/enemies-ai.js` | Patrol / chase / shoot AI, per-enemy state | 200-400 |
-| `src/camera.js` | Camera-window + lookahead + platform-snapping (Itay Keren pattern) | 100-200 |
-| `src/parallax.js` | Multi-layer scroll factors, segment switching | 100-200 |
-| `src/hud.js` | HP/lives/energy/score overlay | 100-200 |
+| `src/physics.js` | Gravity, 2-axis integrate (move x, resolve walls; move y, resolve platforms) | ~60 |
+| `src/platforms.js` | `platformColliders()` + `damageColliders()` filters | ~15 |
+| `src/parallax.js` | Layer sort + opacity + repeatX rendering | ~20 |
+| `src/camera.js` | Follow camera + clamp to mapSize + shake | ~40 |
+| `src/collision.js` | rectsOverlap, bodyRect helpers | ~30 |
+| `src/particles.js` | burstParticles + updateParticles | ~40 |
+| `src/render.js` | drawLevel orchestration + drawEntityAnimation helper | ~270 |
+| `src/scene.js` | switchScene + buildSceneRuntime + updateScene + updateHazards | ~165 |
+| `src/hud.js` | HP / lives / score / pause | ~75 |
+| `src/dialogue.js` | Story panel | ~15 |
+| `src/entities/player.js` | FSM: idle / walk / jump / attack, movement | ~100 |
+| `src/entities/enemy.js` | Patrol + chase + melee/ranged AI | ~120 |
+| `src/entities/attack.js` | Hitbox lifecycle + procedural slash VFX | ~75 |
+| `src/entities/projectiles.js` | Straight-line projectile entities | ~35 |
 
-Total per-project: ~14-20 src files, 2,500-4,000 LOC.
+Total per-project: ~22 src files, ~1,400 LOC (seed baseline). Project additions for spec-specific systems (energy meter, combo chain, multi-weapon) bring it to ~1,800-2,500 LOC.
 
 Genre-specific config files:
 
@@ -251,17 +259,23 @@ Identity files:
 | `data/enemies.json` | Enemy catalog (id, sprite paths, animations) |
 | `data/projectiles.json` | Projectile catalog |
 
-## Reference implementation
+## Reference implementation + recipes
 
-OGF does not yet have a strong side-scroll reference project. **For Phase planning + module shape, use `D:/Sengoku-Era-ogf` as the architectural baseline** (state.js + config split + thin game.js + per-subsystem modules). Translate its RPG-specific subsystems to side-scroll equivalents:
+The side-scroll foundation seed at `.ogf/foundation-seeds/side-scroll/seed/` is the reference structure. Copy it via Phase 0 then fill in spec-specific values. Source reference repo at `D:/Sengoku-Era-act-ogf/` — a complete playable Sengoku ronin action platformer (Moonlit Ronin → Castle Gate Boss), the seed was extracted from there with catalogs emptied and player id genericized.
 
-| Sengoku-Era-ogf module | Side-scroll equivalent |
+**Read these recipes at phase execution time** (alongside the foundation seed's SEED.md):
+
+| Implementing | Read recipe FIRST |
 |---|---|
-| `src/battle.js` | `src/player-fsm.js` + `src/attack.js` |
-| `src/menu.js` | `src/hud.js` (simpler — usually just pause menu) |
-| `src/progression.js` | usually not needed (or simplified into `src/upgrades.js` for Metroidvania) |
-| `src/overworld.js` | `src/camera.js` + `src/parallax.js` |
-| `data/battle-config.json` | `data/physics-config.json` + `data/camera-config.json` |
+| `src/entities/attack.js` (player melee swing + hitbox) | `.ogf/recipes/side-scroll/combat-melee.md` |
+| `src/parallax.js` + level `layers[]` schema | `.ogf/recipes/side-scroll/parallax-layers.md` |
+| Platforms with shared_platform_library | `.ogf/recipes/side-scroll/platform-three-piece.md` |
+| `src/entities/enemy.js` (patrol + ranged AI) | `.ogf/recipes/side-scroll/enemy-patrol.md` |
+| Hazards (fire/spike) + pit-kill zones | `.ogf/recipes/side-scroll/hazards-and-pits.md` |
+| Ranged enemy projectiles | `.ogf/recipes/side-scroll/projectiles.md` |
+| Checkpoints + lives + respawn | `.ogf/recipes/side-scroll/checkpoints-respawn.md` |
+
+Each recipe has a "When to use / When NOT to use" section — if your project's mechanic differs (combo attacks, charged attack, homing projectiles, etc.) the recipe explicitly tells you to fork rather than apply.
 
 ## Reference repos to learn from
 

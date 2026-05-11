@@ -1,0 +1,16 @@
+{
+  "musicGain": 0.035,
+  "musicStepSec": 0.36,
+  "musicNotes": [196, 247, 220, 294, 247, 220, 165, 196],
+  "sfx": {
+    "jump": { "freq": 520, "duration": 0.08, "type": "square", "gain": 0.06 },
+    "slash": { "freq": 720, "duration": 0.06, "type": "sawtooth", "gain": 0.05 },
+    "hit": { "freq": 150, "duration": 0.08, "type": "square", "gain": 0.08 },
+    "hurt": { "freq": 90, "duration": 0.13, "type": "sawtooth", "gain": 0.08 },
+    "pickup": { "freq": 880, "duration": 0.09, "type": "triangle", "gain": 0.07 },
+    "arrow": { "freq": 420, "duration": 0.04, "type": "square", "gain": 0.04 },
+    "boss": { "freq": 120, "duration": 0.25, "type": "sawtooth", "gain": 0.08 },
+    "victory": { "freq": 660, "duration": 0.25, "type": "triangle", "gain": 0.08 },
+    "defeat": { "freq": 80, "duration": 0.28, "type": "sawtooth", "gain": 0.08 }
+  }
+}
