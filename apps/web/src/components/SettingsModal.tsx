@@ -14,22 +14,61 @@ const ROWS: SecretRowSpec[] = [
   {
     key: 'openai_api_key',
     label: 'OpenAI',
-    hint: 'For gpt-image-1 / gpt-image-2 (DALL-E successor).',
+    hint: 'gpt-image-1 / gpt-image-2',
     placeholder: 'sk-…',
   },
   {
     key: 'gemini_api_key',
     label: 'Google Gemini',
-    hint: 'For Gemini 2.5 Flash Image (Nano Banana) — best multimodal + character consistency.',
+    hint: 'Gemini 2.5 Flash Image (Nano Banana)',
     placeholder: 'AIza…',
   },
   {
     key: 'anthropic_api_key',
     label: 'Anthropic',
-    hint: 'For Claude. Note: Claude has no image-gen API; this is for the future Claude Code agent.',
+    hint: 'Reserved for the future Claude Code agent (no image-gen API).',
     placeholder: 'sk-ant-…',
   },
 ];
+
+const inputStyle: React.CSSProperties = {
+  flex: 1,
+  height: 32,
+  padding: '0 10px',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 12,
+  color: 'var(--ink-0)',
+  background: 'var(--bg-0)',
+  border: '1px solid var(--line-strong)',
+  borderRadius: 6,
+  outline: 'none',
+};
+
+const inputDisabledStyle: React.CSSProperties = {
+  ...inputStyle,
+  color: 'var(--ink-3)',
+  background: 'var(--bg-2)',
+  cursor: 'not-allowed',
+};
+
+const cardStyle: React.CSSProperties = {
+  border: '1px solid var(--line)',
+  borderRadius: 8,
+  background: 'var(--bg-1)',
+  padding: '12px 14px',
+  display: 'grid',
+  gap: 10,
+};
+
+const badgeBase: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: 0.3,
+  padding: '2px 7px',
+  borderRadius: 999,
+  fontFamily: 'var(--font-mono)',
+  textTransform: 'uppercase' as const,
+};
 
 export function SettingsModal({ onClose }: { onClose: () => void }) {
   const [statuses, setStatuses] = useState<SecretStatus[] | null>(null);
@@ -83,163 +122,202 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
             {I.close}
           </button>
         </div>
-        <div style={{ padding: 20, display: 'grid', gap: 24, overflowY: 'auto' }}>
-          <section>
-            <h3 style={{ margin: '0 0 4px', fontSize: 13, fontWeight: 600 }}>Image-gen API keys</h3>
-            <p className="muted" style={{ margin: '0 0 16px', fontSize: 12, lineHeight: 1.5 }}>
-              For agents that don't have built-in image generation (Claude Code, Gemini CLI, etc).
-              Codex CLI users keep using Codex's built-in <code>image_gen</code> — these keys are
-              an alternate path, not a replacement. Stored in{' '}
-              <code>~/.ogf/secrets.json</code> (mode 600). Environment variables always win.
+        <div style={{ padding: 20, display: 'grid', gap: 20, overflowY: 'auto' }}>
+          <section style={{ display: 'grid', gap: 6 }}>
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 13,
+                fontWeight: 600,
+                color: 'var(--ink-0)',
+              }}
+            >
+              Image generation API keys
+            </h3>
+            <p
+              className="muted"
+              style={{ margin: 0, fontSize: 11, lineHeight: 1.5 }}
+            >
+              For agents without built-in image gen. Codex CLI users keep using
+              Codex's <code>image_gen</code>.
             </p>
-            <div style={{ display: 'grid', gap: 14 }}>
-              {ROWS.map((row) => {
-                const status = statuses?.find((s) => s.key === row.key);
-                const draft = drafts[row.key];
-                const isEditing = draft !== undefined;
-                const isSaving = saving[row.key];
-                const reveal = revealing[row.key];
-                return (
-                  <div key={row.key} style={{ display: 'grid', gap: 6 }}>
-                    <div
+          </section>
+
+          <div style={{ display: 'grid', gap: 12 }}>
+            {ROWS.map((row) => {
+              const status = statuses?.find((s) => s.key === row.key);
+              const draft = drafts[row.key];
+              const isEditing = draft !== undefined;
+              const isSaving = saving[row.key];
+              const reveal = revealing[row.key];
+              const fieldDisabled = !!status?.fromEnv || isSaving;
+              return (
+                <div key={row.key} style={cardStyle}>
+                  {/* Header: label + status badge */}
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                    }}
+                  >
+                    <span
                       style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        fontSize: 12,
-                        fontWeight: 500,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: 'var(--ink-0)',
                       }}
                     >
-                      <span>{row.label}</span>
-                      {status?.fromEnv && (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            padding: '2px 6px',
-                            background: 'var(--accent-soft)',
-                            color: 'var(--accent)',
-                            borderRadius: 4,
-                            fontFamily: 'var(--font-mono)',
-                          }}
-                          title={`Shadowed by env var ${status.envVarName} — unset that to use this UI`}
-                        >
-                          using {status.envVarName}
-                        </span>
-                      )}
-                      {status?.set && !status.fromEnv && (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            padding: '2px 6px',
-                            background: 'var(--bg-2)',
-                            color: 'var(--ink-2)',
-                            borderRadius: 4,
-                            fontFamily: 'var(--font-mono)',
-                          }}
-                        >
-                          saved
-                        </span>
-                      )}
-                    </div>
-                    <p
+                      {row.label}
+                    </span>
+                    <span
                       className="muted"
-                      style={{ margin: 0, fontSize: 11, lineHeight: 1.5 }}
+                      style={{ fontSize: 11, fontFamily: 'var(--font-mono)' }}
                     >
                       {row.hint}
-                    </p>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <input
-                        type={reveal ? 'text' : 'password'}
-                        placeholder={
-                          status?.fromEnv
-                            ? `(from ${status.envVarName})`
-                            : status?.set
-                              ? status.masked
-                              : row.placeholder
+                    </span>
+                    <span style={{ flex: 1 }} />
+                    {status?.fromEnv ? (
+                      <span
+                        style={{
+                          ...badgeBase,
+                          background: 'var(--accent-soft)',
+                          color: 'var(--accent)',
+                        }}
+                        title={`Shadowed by env var ${status.envVarName} — unset that to use this UI`}
+                      >
+                        env
+                      </span>
+                    ) : status?.set ? (
+                      <span
+                        style={{
+                          ...badgeBase,
+                          background: 'rgba(110, 231, 142, 0.18)',
+                          color: 'var(--green, #6ee78e)',
+                        }}
+                      >
+                        saved
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          ...badgeBase,
+                          background: 'var(--bg-2)',
+                          color: 'var(--ink-3)',
+                        }}
+                      >
+                        not set
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Input + buttons */}
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      type={reveal ? 'text' : 'password'}
+                      placeholder={
+                        status?.fromEnv
+                          ? `(from ${status.envVarName})`
+                          : status?.set
+                            ? status.masked
+                            : row.placeholder
+                      }
+                      value={draft ?? ''}
+                      disabled={fieldDisabled}
+                      onChange={(e) =>
+                        setDrafts((d) => ({ ...d, [row.key]: e.target.value }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && draft && !isSaving) {
+                          void save(row.key, draft);
                         }
-                        value={draft ?? ''}
-                        disabled={status?.fromEnv || isSaving}
-                        onChange={(e) =>
-                          setDrafts((d) => ({ ...d, [row.key]: e.target.value }))
+                      }}
+                      style={fieldDisabled ? inputDisabledStyle : inputStyle}
+                    />
+                    {isEditing && draft!.length > 0 && (
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={() =>
+                          setRevealing((r) => ({ ...r, [row.key]: !reveal }))
                         }
-                        style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12 }}
-                      />
-                      {isEditing && draft!.length > 0 && (
+                        title={reveal ? 'Hide' : 'Show'}
+                        disabled={isSaving}
+                      >
+                        {reveal ? 'hide' : 'show'}
+                      </button>
+                    )}
+                    {isEditing ? (
+                      <>
+                        <button
+                          className="btn btn-sm btn-primary"
+                          onClick={() => void save(row.key, draft ?? '')}
+                          disabled={isSaving || !draft}
+                        >
+                          {isSaving ? 'saving…' : 'save'}
+                        </button>
                         <button
                           className="btn btn-sm btn-ghost"
                           onClick={() =>
-                            setRevealing((r) => ({ ...r, [row.key]: !reveal }))
+                            setDrafts((d) => {
+                              const next = { ...d };
+                              delete next[row.key];
+                              return next;
+                            })
                           }
-                          title={reveal ? 'Hide' : 'Show'}
                           disabled={isSaving}
                         >
-                          {reveal ? 'hide' : 'show'}
+                          cancel
                         </button>
-                      )}
-                      {isEditing ? (
-                        <>
-                          <button
-                            className="btn btn-sm btn-primary"
-                            onClick={() => void save(row.key, draft ?? '')}
-                            disabled={isSaving || !draft}
-                          >
-                            {isSaving ? 'saving…' : 'save'}
-                          </button>
-                          <button
-                            className="btn btn-sm btn-ghost"
-                            onClick={() =>
-                              setDrafts((d) => {
-                                const next = { ...d };
-                                delete next[row.key];
-                                return next;
-                              })
-                            }
-                            disabled={isSaving}
-                          >
-                            cancel
-                          </button>
-                        </>
-                      ) : (
-                        status?.set &&
-                        !status.fromEnv && (
-                          <button
-                            className="btn btn-sm btn-ghost"
-                            onClick={() => void save(row.key, null)}
-                            disabled={isSaving}
-                            title="Remove this key"
-                          >
-                            clear
-                          </button>
-                        )
-                      )}
-                    </div>
+                      </>
+                    ) : (
+                      status?.set &&
+                      !status.fromEnv && (
+                        <button
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => void save(row.key, null)}
+                          disabled={isSaving}
+                          title="Remove this key"
+                        >
+                          clear
+                        </button>
+                      )
+                    )}
                   </div>
-                );
-              })}
-            </div>
-          </section>
 
-          <section
+                  {/* Env hint when shadowed */}
+                  {status?.fromEnv && (
+                    <p
+                      className="muted"
+                      style={{
+                        margin: 0,
+                        fontSize: 10,
+                        lineHeight: 1.4,
+                        fontFamily: 'var(--font-mono)',
+                      }}
+                    >
+                      Override via <code>{status.envVarName}</code>. Unset that env var to
+                      use a value saved here.
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <p
             className="muted"
             style={{
+              margin: 0,
               fontSize: 11,
               lineHeight: 1.6,
               borderTop: '1px solid var(--line)',
-              paddingTop: 16,
+              paddingTop: 14,
             }}
           >
-            <strong>Storage:</strong> Keys are written to{' '}
-            <code>~/.ogf/secrets.json</code> with file mode 600 (owner-only on POSIX; NTFS
-            user ACL on Windows). They never leave your machine except when the daemon
-            calls the corresponding provider on your behalf.
-            <br />
-            <br />
-            <strong>Environment variables:</strong> If <code>OPENAI_API_KEY</code>,
-            <code> GEMINI_API_KEY</code>, or <code>ANTHROPIC_API_KEY</code> are set when
-            the daemon starts, those override anything saved here. Useful for CI or
-            tools like <code>op run</code> (1Password CLI). Unset the env var to fall
-            back to a saved value.
-          </section>
+            Stored at <code>~/.ogf/secrets.json</code> (mode 600). Env vars
+            (<code>OPENAI_API_KEY</code>, <code>GEMINI_API_KEY</code>,{' '}
+            <code>ANTHROPIC_API_KEY</code>) override the file at runtime.
+          </p>
         </div>
       </div>
     </div>
