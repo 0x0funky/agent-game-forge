@@ -1,10 +1,12 @@
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import type { AgentInfo, AgentModel } from '@ogf/contracts';
+import type { AgentEvent, AgentId, AgentInfo, AgentModel, ReasoningEffort } from '@ogf/contracts';
+import { spawnCodex, createJsonlParser } from './codex.js';
+import { spawnClaudeCode, createClaudeJsonlParser } from './claude-code.js';
 
 export interface AgentDef {
-  id: 'codex';
+  id: AgentId;
   name: string;
   bin: string;
   versionArgs: string[];
@@ -30,7 +32,79 @@ export const AGENT_DEFS: AgentDef[] = [
       { id: 'gpt-5.2', label: 'gpt-5.2 · long-running agents' },
     ],
   },
+  {
+    id: 'claude-code',
+    name: 'Claude Code',
+    bin: 'claude',
+    versionArgs: ['--version'],
+    // Anthropic's latest Claude model IDs as of 2026-05. "default" lets the
+    // CLI pick — useful when Anthropic ships a new flagship and we haven't
+    // updated this list yet. OGF passes the chosen id straight to
+    // `claude --model <id>`.
+    fallbackModels: [
+      { id: 'default', label: 'Default · CLI default' },
+      { id: 'claude-opus-4-7', label: 'Opus 4.7 · frontier' },
+      { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6 · everyday' },
+      { id: 'claude-haiku-4-5', label: 'Haiku 4.5 · cheap & fast' },
+    ],
+  },
 ];
+
+// ── Dispatch ──
+// Maps each agent id to its spawn + parser pair so the rest of the daemon
+// (RunManager, /api/runs) is agent-agnostic. Both return objects with the
+// same shape so callers don't need conditionals.
+
+export interface AgentSpawnOptions {
+  bin: string;
+  cwd: string;
+  prompt: string;
+  model?: string;
+  reasoning?: ReasoningEffort;
+  resumeThreadId?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+export interface AgentParserCallbacks {
+  onEvent: (e: AgentEvent) => void;
+  onThreadId?: (id: string) => void;
+  onActivity?: () => void;
+}
+
+export interface AgentParser {
+  feed: (chunk: Buffer | string) => void;
+  flush: () => void;
+}
+
+export interface AgentAdapter {
+  spawn: (opts: AgentSpawnOptions) => ChildProcess;
+  makeParser: (cb: AgentParserCallbacks) => AgentParser;
+}
+
+const ADAPTERS: Record<AgentId, AgentAdapter> = {
+  codex: {
+    spawn: (opts) => spawnCodex(opts),
+    makeParser: (cb) => createJsonlParser(cb),
+  },
+  'claude-code': {
+    // Claude Code doesn't take a `reasoning` knob the way Codex does —
+    // ignored at spawn. Resume uses `--resume <session-id>`.
+    spawn: (opts) =>
+      spawnClaudeCode({
+        bin: opts.bin,
+        cwd: opts.cwd,
+        prompt: opts.prompt,
+        model: opts.model,
+        resumeThreadId: opts.resumeThreadId,
+        env: opts.env,
+      }),
+    makeParser: (cb) => createClaudeJsonlParser(cb),
+  },
+};
+
+export function getAgentAdapter(id: AgentId): AgentAdapter {
+  return ADAPTERS[id];
+}
 
 export function resolveOnPath(bin: string): string | null {
   const exts =
@@ -112,4 +186,8 @@ export async function detectAgents(): Promise<AgentInfo[]> {
 
 export function getAgentDef(id: string): AgentDef | undefined {
   return AGENT_DEFS.find((d) => d.id === id);
+}
+
+export function isAgentId(id: string): id is AgentId {
+  return id === 'codex' || id === 'claude-code';
 }

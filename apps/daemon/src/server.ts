@@ -2,10 +2,15 @@ import express, { type Request, type Response } from 'express';
 import cors from 'cors';
 import { copyFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { detectAgents, getAgentDef, resolveOnPath } from './agents.js';
+import {
+  detectAgents,
+  getAgentAdapter,
+  getAgentDef,
+  isAgentId,
+  resolveOnPath,
+} from './agents.js';
 import { isSecretKey, listSecretStatuses, setSecret } from './secrets.js';
 import { generateImage, GenImageError, type GenImageRequest } from './gen-image.js';
-import { spawnCodex, createJsonlParser } from './codex.js';
 import { splitFormsFromText } from './question-form.js';
 import { RunManager } from './runs.js';
 import {
@@ -1172,10 +1177,14 @@ export function createServer() {
       return res.status(400).json({ error: 'agentId and prompt are required' });
     }
 
+    if (!isAgentId(body.agentId)) {
+      return res.status(400).json({ error: `unknown agent: ${body.agentId}` });
+    }
     const def = getAgentDef(body.agentId);
     if (!def) return res.status(400).json({ error: `unknown agent: ${body.agentId}` });
     const bin = resolveOnPath(def.bin);
     if (!bin) return res.status(400).json({ error: `${def.name} not found on PATH` });
+    const adapter = getAgentAdapter(body.agentId);
 
     // Resolve conversation: use provided id, else create one under projectPath.
     let conversationId = body.conversationId;
@@ -1252,7 +1261,7 @@ export function createServer() {
 
     let child;
     try {
-      child = spawnCodex({
+      child = adapter.spawn({
         bin,
         cwd,
         prompt: composed,
@@ -1297,10 +1306,10 @@ export function createServer() {
     const agentEvents: AgentEvent[] = [];
     let agentTextBuffer = '';
 
-    const parser = createJsonlParser({
-      // Heartbeat: every line read from codex stdout resets this run's
-      // stall timer. The watchdog in runs.ts kills runs that go silent
-      // for 5+ minutes (image_gen hung, network blip, etc).
+    const parser = adapter.makeParser({
+      // Heartbeat: every line read from the agent's stdout resets this
+      // run's stall timer. The watchdog in runs.ts kills runs that go
+      // silent for 5+ minutes (image_gen hung, network blip, etc).
       onActivity: () => runs.touch(run),
       onEvent: (rawEv) => {
         // Split agent text into prose + structured form events. Codex emits
