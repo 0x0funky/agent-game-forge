@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, renameSync, writeFileSync } from '
 import path from 'node:path';
 import { detectAgents, getAgentDef, resolveOnPath } from './agents.js';
 import { isSecretKey, listSecretStatuses, setSecret } from './secrets.js';
+import { generateImage, GenImageError, type GenImageRequest } from './gen-image.js';
 import { spawnCodex, createJsonlParser } from './codex.js';
 import { splitFormsFromText } from './question-form.js';
 import { RunManager } from './runs.js';
@@ -136,6 +137,47 @@ export function createServer() {
     }
     setSecret(body.key, (body.value as string | null) ?? null);
     res.json({ secrets: listSecretStatuses() });
+  });
+
+  // -------------------- Image generation --------------------
+  // External-provider image gen for agents without built-in image_gen.
+  // Codex CLI users keep using Codex's image_gen; this is for Claude Code,
+  // future Gemini CLI, bash wrappers, etc.
+  //
+  // Body shape: see GenImageRequest in gen-image.ts. Required: prompt, outputPath.
+  // The daemon writes the PNG to outputPath and returns { path, provider, sizeBytes }.
+
+  app.post('/api/gen-image', async (req, res) => {
+    const body = req.body as Partial<GenImageRequest> | undefined;
+    if (!body || typeof body.prompt !== 'string' || typeof body.outputPath !== 'string') {
+      return res
+        .status(400)
+        .json({ error: 'prompt (string) and outputPath (absolute string) are required' });
+    }
+    try {
+      const result = await generateImage(body as GenImageRequest);
+      // Log shape: provider + model + bytes — never the key, never the full prompt.
+      console.log(
+        `[gen-image] ok provider=${result.provider} model=${result.model} bytes=${result.sizeBytes}`,
+      );
+      res.json(result);
+    } catch (err) {
+      if (err instanceof GenImageError) {
+        const status = err.status && err.status >= 400 && err.status < 600 ? err.status : 500;
+        console.error(
+          `[gen-image] FAIL provider=${err.provider} status=${err.status ?? '-'} msg=${err.message}`,
+        );
+        return res.status(status).json({
+          error: err.message,
+          provider: err.provider,
+          providerStatus: err.status,
+        });
+      }
+      console.error('[gen-image] unexpected error', err);
+      res.status(500).json({
+        error: err instanceof Error ? err.message : 'gen-image failed',
+      });
+    }
   });
 
   // -------------------- Agents --------------------
