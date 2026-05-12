@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   AgentEvent,
   AgentInfo,
@@ -287,13 +288,12 @@ export function App() {
   useEffect(() => {
     localStorage.setItem(LS_AGENT_COLLAPSED, agentCollapsed ? '1' : '0');
   }, [agentCollapsed]);
-  // Safety: if a turn starts while the panel is collapsed, auto-expand so
-  // the Stop button is reachable. Otherwise the agent runs invisibly and
-  // there's no way to cancel without restoring the panel manually — easy
-  // way to lose track of an active run.
-  useEffect(() => {
-    if (running && agentCollapsed) setAgentCollapsed(false);
-  }, [running, agentCollapsed]);
+  // Do NOT auto-expand while running. Previous behavior force-expanded the
+  // panel on every render where `running` was true, so collapsing during a
+  // run bounced right back open. Stop is reachable from the header runctl
+  // anyway; if the user has explicitly collapsed the panel mid-run, respect
+  // it. A "running" badge could be added to the collapsed-pane affordance
+  // later if discoverability matters more than respecting user intent.
 
   const [treeWidth, setTreeWidth] = useState<number>(() => {
     const saved = Number(localStorage.getItem(LS_TREE_W));
@@ -2119,19 +2119,46 @@ function HistoryDropdown(props: {
   onImport: () => void;
   disabled: boolean;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Position the dropdown via portal so the parent `.agent-pane`'s
+  // `overflow: hidden` can't clip it. Without the portal the dropdown
+  // visually drops INTO the agent pane's chat area but gets cut off,
+  // making it look like the click went into the canvas behind.
+  const [panelPos, setPanelPos] = useState<{ top: number; right: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!props.open || !triggerRef.current) return;
+    const recompute = () => {
+      const r = triggerRef.current!.getBoundingClientRect();
+      setPanelPos({
+        top: r.bottom + 4,
+        right: window.innerWidth - r.right,
+      });
+    };
+    recompute();
+    window.addEventListener('resize', recompute);
+    window.addEventListener('scroll', recompute, true);
+    return () => {
+      window.removeEventListener('resize', recompute);
+      window.removeEventListener('scroll', recompute, true);
+    };
+  }, [props.open]);
   useEffect(() => {
     if (!props.open) return;
     const close = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) props.setOpen(false);
+      const target = e.target as Node;
+      const insideTrigger = triggerRef.current?.contains(target);
+      const insidePanel = panelRef.current?.contains(target);
+      if (!insideTrigger && !insidePanel) props.setOpen(false);
     };
     window.addEventListener('mousedown', close);
     return () => window.removeEventListener('mousedown', close);
   }, [props.open, props]);
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <>
       <button
+        ref={triggerRef}
         className="btn btn-sm btn-ghost"
         onClick={() => props.setOpen(!props.open)}
         disabled={props.disabled}
@@ -2139,8 +2166,19 @@ function HistoryDropdown(props: {
       >
         {I.branch} history
       </button>
-      {props.open && (
-        <div className="proj-dropdown" style={{ right: 0, left: 'auto' }}>
+      {props.open && panelPos &&
+        createPortal(
+          <div
+            ref={panelRef}
+            className="proj-dropdown"
+            style={{
+              position: 'fixed',
+              top: panelPos.top,
+              right: panelPos.right,
+              left: 'auto',
+              minWidth: 280,
+            }}
+          >
           {props.conversations.length === 0 && (
             <div className="proj-dropdown-empty">No conversations</div>
           )}
@@ -2198,9 +2236,10 @@ function HistoryDropdown(props: {
           >
             {I.branch} Import Codex session…
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }
 

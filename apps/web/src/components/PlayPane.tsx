@@ -435,12 +435,33 @@ function WebPlayPane({ projectPath }: { projectPath: string }) {
   const [running, setRunning] = useState(false);
   const [reloadTick, setReloadTick] = useState(0);
   const src = `/api/web-play/${slug}/index.html?_=${reloadTick}`;
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
   // If the project switches while running, stop — the slug just changed and
   // the new project should start fresh.
   useEffect(() => {
     setRunning(false);
   }, [projectPath]);
+
+  // After Play, push focus into the iframe so the next keypress goes to the
+  // game (jump / fire / Enter on a "press start" screen) instead of back to
+  // the Play button. Without this, pressing Enter after Play re-triggers the
+  // button click and the iframe re-mounts. Slight delay lets the iframe
+  // document attach so focus actually lands.
+  useEffect(() => {
+    if (!running) return;
+    const t = setTimeout(() => {
+      const f = iframeRef.current;
+      if (!f) return;
+      try {
+        f.focus();
+        f.contentWindow?.focus();
+      } catch {
+        // cross-origin or detached frame — no-op, user can click into it
+      }
+    }, 80);
+    return () => clearTimeout(t);
+  }, [running, reloadTick]);
 
   return (
     <div className="inspector">
@@ -475,7 +496,13 @@ function WebPlayPane({ projectPath }: { projectPath: string }) {
           ) : (
             <button
               className="btn btn-sm btn-primary"
-              onClick={() => setRunning(true)}
+              onClick={(e) => {
+                setRunning(true);
+                // Blur the Play button so a stray Enter after the click
+                // doesn't re-trigger play — focus moves to the iframe via
+                // the effect above.
+                e.currentTarget.blur();
+              }}
               title="Run the project in an iframe"
             >
               {I.play} play
@@ -486,6 +513,7 @@ function WebPlayPane({ projectPath }: { projectPath: string }) {
       <div className="web-play-frame-wrap">
         {running ? (
           <iframe
+            ref={iframeRef}
             key={reloadTick}
             src={src}
             className="web-play-frame"
