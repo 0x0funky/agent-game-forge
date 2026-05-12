@@ -486,6 +486,38 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
       }
       return catalogSizeFor(entry);
     }
+    /** Pull `hitbox: {w,h,offsetX?,offsetY?}` from the entry first, then
+     *  fall back to the catalog. Centered within the visual rect at the
+     *  editor + runtime — see SceneProp.hitbox docstring. */
+    function effectiveHitbox(
+      entry: RectLike,
+    ): { w: number; h: number; offsetX?: number; offsetY?: number } | null {
+      const fromEntry = (entry as { hitbox?: unknown }).hitbox;
+      const sources: unknown[] = [fromEntry];
+      if (sectionCatalog) {
+        const type = (entry as { type?: unknown }).type;
+        if (typeof type === 'string') {
+          const hit = sectionCatalog.find((c) => c?.id === type);
+          sources.push((hit as { hitbox?: unknown } | undefined)?.hitbox);
+        }
+      }
+      for (const src of sources) {
+        if (!src || typeof src !== 'object') continue;
+        const obj = src as { w?: unknown; h?: unknown; offsetX?: unknown; offsetY?: unknown };
+        const w = Number(obj.w);
+        const h = Number(obj.h);
+        if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) continue;
+        const ox = Number(obj.offsetX);
+        const oy = Number(obj.offsetY);
+        return {
+          w,
+          h,
+          offsetX: Number.isFinite(ox) ? ox : undefined,
+          offsetY: Number.isFinite(oy) ? oy : undefined,
+        };
+      }
+      return null;
+    }
 
     // An entry is editable if it has at minimum a position + size rect.
     // Image is OPTIONAL — entries without image (e.g. platforms[] with
@@ -624,6 +656,7 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
       if (typeof p.sortY === 'number') meta.sortY = String(p.sortY);
       if (typeof p.kind === 'string') meta.kind = p.kind as string;
       if (typeof p.type === 'string') meta.type = p.type as string;
+      const hitbox = effectiveHitbox(p) ?? undefined;
       props.push({
         nodePath: `${section}/${id}`,
         name: id,
@@ -636,6 +669,7 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
         ref: { backend: 'json', relPath, section, id },
         renderMode,
         tilePieces,
+        hitbox,
       });
     });
   }

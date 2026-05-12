@@ -83,10 +83,26 @@ function updateScene(dt) {
   updateCamera(dt);
 }
 
+// Compute the actual collision rect for a hazard/pickup. When the catalog
+// declares a `hitbox: {w, h, offsetX?, offsetY?}` (e.g. sprite is centered
+// in a square frame but the visible content is smaller / flat), use that
+// rect centered within the entity's visual bounds. Otherwise fall back to
+// the entity's full rect. Without this, square sprites with transparent
+// padding produce damage hits in the visually-empty area around the sprite.
+function collisionRect(entity) {
+  const hb = entity.hitbox;
+  if (hb && hb.w > 0 && hb.h > 0) {
+    const cx = entity.x + entity.w / 2 + (hb.offsetX || 0);
+    const cy = entity.y + entity.h / 2 + (hb.offsetY || 0);
+    return { x: cx - hb.w / 2, y: cy - hb.h / 2, w: hb.w, h: hb.h };
+  }
+  return entity;
+}
+
 function updatePickups() {
   const pRect = bodyRect(state.player);
   for (const pickup of state.pickups) {
-    if (pickup.collected || !rectsOverlap(pRect, pickup)) continue;
+    if (pickup.collected || !rectsOverlap(pRect, collisionRect(pickup))) continue;
     pickup.collected = true;
     if (pickup.effect?.heal) state.player.hp = Math.min(state.player.maxHp, state.player.hp + pickup.effect.heal);
     if (pickup.effect?.score) state.score += pickup.effect.score;
@@ -101,7 +117,7 @@ function updateHazards() {
   // hazards[] = visible damage entries (sprite + rect). Each has effect
   // (kill / damage) and optional damage amount.
   for (const hazard of state.hazards) {
-    if (!rectsOverlap(pRect, hazard)) continue;
+    if (!rectsOverlap(pRect, collisionRect(hazard))) continue;
     if (hazard.effect === "kill") loseLife();
     else damagePlayer(hazard.damage || 1, state.player.x < hazard.x ? -1 : 1);
   }

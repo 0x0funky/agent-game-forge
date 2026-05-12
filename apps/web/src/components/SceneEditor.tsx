@@ -4874,6 +4874,26 @@ function drawProp(
     }
   }
 
+  // Hitbox indicator — when the prop has a smaller damage/collect rect
+  // than its visual bounds (catalog declared `hitbox`), draw a dashed
+  // inset rect so the designer knows what the actual collision area is.
+  // Most relevant for hazards (steam vent / puddle / spike) and pickups
+  // with transparent padding around the visible sprite content.
+  if (p.hitbox) {
+    const hbW = p.hitbox.w * Math.abs(p.scale.x);
+    const hbH = p.hitbox.h * Math.abs(p.scale.y);
+    const cx = r.x + r.w / 2 + (p.hitbox.offsetX ?? 0);
+    const cy = r.y + r.h / 2 + (p.hitbox.offsetY ?? 0);
+    const hbX = cx - hbW / 2;
+    const hbY = cy - hbH / 2;
+    ctx.save();
+    ctx.lineWidth = 1.2 / scale;
+    ctx.strokeStyle = 'rgba(248, 113, 113, 0.85)';
+    ctx.setLineDash([6 / scale, 4 / scale]);
+    ctx.strokeRect(hbX, hbY, hbW, hbH);
+    ctx.restore();
+  }
+
   // Section tint: thin colored border + tiny label tab in the top-left so the
   // user can tell which array the entry came from (platforms / pickups / ...).
   // Only drawn for non-default sections. Hidden when the prop is selected so

@@ -108,6 +108,15 @@ export interface SceneProp {
     mid: { image: string; naturalW?: number; naturalH?: number; tileW?: number; tileH?: number };
     right?: { image: string; naturalW?: number; naturalH?: number };
   };
+  /** Damage / collect collision box — smaller than the visual rect when the
+   *  sprite has transparent padding or the collision rect's aspect differs
+   *  from the sprite's content aspect. Runtime checks rectsOverlap against
+   *  this box (not the full displaySize) for hazards/pickups so the player
+   *  doesn't take damage in the visually-empty area around a centered sprite.
+   *  Centered within the visual rect; offsetX/offsetY shift relative to center.
+   *  Loader pulls this from the catalog (data/<section>.json hitbox field).
+   *  When undefined, runtime + editor fall back to the full visual rect. */
+  hitbox?: { w: number; h: number; offsetX?: number; offsetY?: number };
 }
 
 export type ColliderShape =

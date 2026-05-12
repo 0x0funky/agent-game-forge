@@ -67,6 +67,7 @@ damage rectangles
 [
   { "id": "fire_pit",    "size": { "w": 64, "h": 64 }, "damage": 1, "effect": "damage", "sprite": "assets/sprites/hazards/fire_pit/sheet-transparent.png" },
   { "id": "spike_stakes","size": { "w": 96, "h": 96 }, "damage": 1, "effect": "damage", "sprite": "assets/sprites/hazards/spike_stakes/sheet-transparent.png" },
+  { "id": "slippery_puddle","size": { "w": 112, "h": 28 }, "hitbox": { "w": 96, "h": 18 }, "damage": 1, "effect": "damage", "sprite": "..." },
   { "id": "lava_floor",  "size": { "w": 96, "h": 96 }, "damage": 999,"effect": "kill",   "sprite": "..." }
 ]
 ```
@@ -75,6 +76,30 @@ damage rectangles
 output. Common choices: 48×48 (small pickup-like), 64×64 (default),
 96×96 (large). Non-square only when the user explicitly asks for a
 visually long/tall hazard (laser beam, fire wall, vertical buzzsaw rail).
+
+### `hitbox` — damage rect when sprite ≠ visual rect
+
+Optional `hitbox: { w, h, offsetX?, offsetY? }` declares the **damage
+collision rect**, separate from the visual rect (`size`). Centered within
+the visual rect by default; `offsetX/Y` shifts it. When omitted, damage
+collision uses the full `size` rect.
+
+**Set hitbox when**:
+- Sprite has transparent padding around the visible element (e.g. a
+  centered 80×30 puddle in a 160×160 square sheet → set hitbox to ~96×18)
+- The visual rect's aspect differs from the sprite's content aspect
+  (puddle catalog uses flat 112×28 but generate2dsprite emits square →
+  aspect-fit shrinks sprite tiny; hitbox restricts damage to where the
+  sprite actually renders)
+- Designer wants generous visual + tight damage ("looks dangerous but
+  only hurts if you really touch it")
+
+**Don't bother when**:
+- Square sprite + square `size` of the same aspect (full rect IS the
+  visible content) — `traffic_cone` 128×128 sprite at 64×64 rect, no
+  hitbox needed
+- Hazard is a wide-fill object like a long lava strip where the rect
+  IS the damage area
 
 - `effect: "damage"` → `damagePlayer(damage)`
 - `effect: "kill"` → `loseLife()`
