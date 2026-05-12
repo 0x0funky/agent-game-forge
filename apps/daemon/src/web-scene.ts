@@ -457,6 +457,36 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
     const arr = value as RectLike[];
     if (arr.length === 0) continue;
 
+    // Catalog-size fallback — pickups/enemies typically write
+    // `{type, x, y}` without explicit w/h because the runtime pulls
+    // size from `data/<section>.json` at load time. Compute effective
+    // (w, h) so the editor can show + resize those entries; without
+    // this they'd be filtered out (no w/h) and silently invisible.
+    const sectionCatalog = loadCatalogForSection(rootAbs, section);
+    function catalogSizeFor(entry: RectLike): { w: number; h: number } | null {
+      const type = (entry as { type?: unknown }).type;
+      if (typeof type !== 'string' || !sectionCatalog) return null;
+      const hit = sectionCatalog.find((c) => c?.id === type);
+      const sz = (hit as { size?: unknown } | undefined)?.size;
+      if (!sz || typeof sz !== 'object') return null;
+      const w = Number((sz as { w?: unknown }).w);
+      const h = Number((sz as { h?: unknown }).h);
+      return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0
+        ? { w, h }
+        : null;
+    }
+    function effectiveSize(entry: RectLike): { w: number; h: number } | null {
+      if (
+        typeof entry?.w === 'number' &&
+        typeof entry?.h === 'number' &&
+        entry.w > 0 &&
+        entry.h > 0
+      ) {
+        return { w: entry.w, h: entry.h };
+      }
+      return catalogSizeFor(entry);
+    }
+
     // An entry is editable if it has at minimum a position + size rect.
     // Image is OPTIONAL — entries without image (e.g. platforms[] with
     // collision-only kind: 'earth_rampart') still render as outlined
@@ -466,10 +496,7 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
       (e) =>
         typeof e?.x === 'number' &&
         typeof e?.y === 'number' &&
-        typeof e?.w === 'number' &&
-        typeof e?.h === 'number' &&
-        Number(e.w) > 0 &&
-        Number(e.h) > 0,
+        effectiveSize(e) !== null,
     );
     if (editable.length === 0) continue;
     if (editable.length * 2 < arr.length) continue;
@@ -582,8 +609,11 @@ export function loadWebLevel(rootAbs: string, relPath: string): LoadSceneRespons
       // Texture is the renderer's primary image — use the entry's mid as a
       // safe fallback so existing single-img branches still draw something.
       const image = direct ?? tilePieces?.mid.image ?? null;
-      const w = Number(p.w);
-      const h = Number(p.h);
+      // Effective size = entry.w/h when present, else catalog.size.w/h
+      // (pickups/enemies often omit w/h since runtime reads from catalog).
+      const eff = effectiveSize(p) ?? { w: 0, h: 0 };
+      const w = eff.w;
+      const h = eff.h;
       const id = String(p.id ?? `${section}_${idx}`);
       if (image) referenced.add(image);
       if (tilePieces?.left?.image) referenced.add(tilePieces.left.image);

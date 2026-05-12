@@ -105,6 +105,47 @@ function readPngSize(buf: Buffer): { w: number; h: number } | null {
   return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
 }
 
+/** Look up an entry's default `size: {w, h}` from `data/<section>.json`.
+ *  Mirrors web-scene.ts's catalog fallback — pickups/enemies often write
+ *  level entries with only {type, x, y} because the runtime pulls size
+ *  from the catalog. Returns null if the catalog or entry is missing or
+ *  the size shape is malformed. Section must be one of the known catalog
+ *  sections (hazards/pickups/enemies/items/projectiles/doors/checkpoints). */
+const CATALOG_SECTIONS = new Set([
+  'hazards',
+  'pickups',
+  'enemies',
+  'items',
+  'projectiles',
+  'doors',
+  'checkpoints',
+]);
+function readCatalogSize(
+  rootAbs: string,
+  section: string,
+  typeId: string,
+): { w: number; h: number } | null {
+  if (!CATALOG_SECTIONS.has(section)) return null;
+  try {
+    const abs = safeJoin(rootAbs, `data/${section}.json`);
+    if (!existsSync(abs)) return null;
+    const parsed = JSON.parse(readFileSync(abs, 'utf8'));
+    if (!Array.isArray(parsed)) return null;
+    const hit = (parsed as Array<{ id?: unknown; size?: unknown }>).find(
+      (c) => c?.id === typeId,
+    );
+    const sz = hit?.size;
+    if (!sz || typeof sz !== 'object') return null;
+    const w = Number((sz as { w?: unknown }).w);
+    const h = Number((sz as { h?: unknown }).h);
+    return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0
+      ? { w, h }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 const PREVIEW_HINTS = ['layered-preview', 'baked-map', 'basemap', 'base-map'];
 
 /** Pick a background image from the project: scan likely directories for a preview PNG. */
@@ -749,24 +790,41 @@ function applyOpsToJsonScene(opts: ApplyOpsOptions): ApplyOpsResult {
       // Without center-preserving x/y rewrite here, the JSON-stored top-left
       // stays put, the loader re-emits with scale=1, and the prop visually
       // jumps on the next reload (top-left fixed, growth now asymmetric).
+      //
+      // Catalog fallback: pickups/enemies often write {type, x, y} with no
+      // w/h (runtime reads size from data/<section>.json). Look up the
+      // current effective size from that catalog so the FIRST resize works
+      // — without this the entry has no cur.w to multiply against and the
+      // edit silently no-ops.
       const map = JSON.parse(
         readFileSync(safeJoin(opts.rootAbs, op.ref.relPath), 'utf8'),
       ) as Record<string, unknown>;
       const arr = map[op.ref.section];
       if (Array.isArray(arr)) {
-        const cur = (arr as Array<{ id?: string; x?: number; y?: number; w?: number; h?: number }>).find(
+        const cur = (arr as Array<{ id?: string; type?: string; x?: number; y?: number; w?: number; h?: number }>).find(
           (p) => p?.id === op.ref!.id,
         );
-        if (cur && typeof cur.w === 'number' && typeof cur.h === 'number') {
-          const newW = cur.w * op.scale.x;
-          const newH = cur.h * op.scale.y;
+        let curW: number | undefined =
+          typeof cur?.w === 'number' ? cur.w : undefined;
+        let curH: number | undefined =
+          typeof cur?.h === 'number' ? cur.h : undefined;
+        if ((curW === undefined || curH === undefined) && cur?.type) {
+          const sz = readCatalogSize(opts.rootAbs, op.ref.section, cur.type);
+          if (sz) {
+            curW = curW ?? sz.w;
+            curH = curH ?? sz.h;
+          }
+        }
+        if (cur && curW !== undefined && curH !== undefined) {
+          const newW = curW * op.scale.x;
+          const newH = curH * op.scale.y;
           const patch: Record<string, number> = { w: newW, h: newH };
           if (typeof cur.x === 'number') {
-            const cx = cur.x + cur.w / 2;
+            const cx = cur.x + curW / 2;
             patch.x = cx - newW / 2;
           }
           if (typeof cur.y === 'number') {
-            const cy = cur.y + cur.h / 2;
+            const cy = cur.y + curH / 2;
             patch.y = cy - newH / 2;
           }
           applyJsonColliderEdit(opts.rootAbs, op.ref, patch);
