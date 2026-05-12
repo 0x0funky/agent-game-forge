@@ -45,3 +45,8 @@ copyTemplateDir('foundation', ['.md', '.html', '.css', '.js', '.json']);
 
 // Recipes (OGF v2): per-genre paste-ready code patterns. Markdown only.
 copyTemplateDir('recipes', ['.md']);
+
+// Agent tools (OGF v2 multi-CLI): CLI helpers landed at .agents/tools/.
+// gen-image.py POSTs to daemon's /api/gen-image so non-Codex agents
+// (Claude Code, future Gemini CLI, bash wrappers) can drive image gen.
+copyTemplateDir('agent-tools', ['.py', '.sh', '.md']);

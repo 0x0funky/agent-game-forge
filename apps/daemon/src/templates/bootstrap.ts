@@ -185,6 +185,34 @@ function vendoredRecipeFiles(): ScaffoldFile[] {
   return out;
 }
 
+// ── Vendored agent-tools (CLI helpers for non-Codex agents) ─────────────
+//
+// Scripts in `.agents/tools/` that ANY agent CLI can shell out to. Currently:
+//   gen-image.py — POSTs to daemon's /api/gen-image so Claude Code / Gemini
+//                  CLI / bash wrappers can generate images without their own
+//                  built-in image_gen. Codex users keep using Codex's tool;
+//                  this is the alternate path that makes OGF CLI-agnostic.
+const AGENT_TOOLS_SRC_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  'agent-tools',
+);
+
+function vendoredAgentToolFiles(): ScaffoldFile[] {
+  if (!existsSync(AGENT_TOOLS_SRC_DIR)) return [];
+  const out: ScaffoldFile[] = [];
+  for (const entry of readdirSync(AGENT_TOOLS_SRC_DIR)) {
+    const abs = path.join(AGENT_TOOLS_SRC_DIR, entry);
+    const stat = statSync(abs);
+    if (!stat.isFile()) continue;
+    if (!/\.(py|sh|md)$/.test(entry)) continue;
+    out.push({
+      rel: ['.agents', 'tools', entry].join('/'),
+      body: readFileSync(abs, 'utf8'),
+    });
+  }
+  return out;
+}
+
 interface ScaffoldFile {
   rel: string;
   body: string;
@@ -287,6 +315,7 @@ function godotFiles(name: string, conventions: string): ScaffoldFile[] {
     ...vendoredConventionFiles(),
     ...vendoredRecipeFiles(),
     ...vendoredSkillFiles(),
+    ...vendoredAgentToolFiles(),
     { rel: 'data/.gitkeep', body: '' },
     { rel: 'assets/.gitkeep', body: '' },
   ];
@@ -565,6 +594,7 @@ function webFiles(name: string, conventions: string): ScaffoldFile[] {
     ...vendoredConventionFiles(),
     ...vendoredRecipeFiles(),
     ...vendoredSkillFiles(),
+    ...vendoredAgentToolFiles(),
     ...vendoredFoundationSeedFiles(), // staged under .ogf/foundation-seeds/
     { rel: 'assets/maps/.gitkeep', body: '' },
     { rel: 'assets/sprites/.gitkeep', body: '' },
