@@ -212,8 +212,12 @@ export function SettingsModal({ onClose }: { onClose: () => void }) {
               Agent CLI
             </h3>
             <p className="muted" style={{ margin: 0, fontSize: 11, lineHeight: 1.5 }}>
-              Which AI assistant drives the project. Codex uses its built-in
-              image-gen; Claude Code routes images through the daemon's{' '}
+              <strong>Default for NEW conversations</strong> — existing
+              conversations stay on the CLI that created them, and selecting
+              an old conversation snaps the active CLI back to its original
+              one (to start fresh under another CLI, create a new
+              conversation). Codex uses its built-in image-gen; Claude Code
+              routes images through the daemon's{' '}
               <code>/api/gen-image</code> using your API keys below.
             </p>
           </section>

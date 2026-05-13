@@ -78,6 +78,9 @@ export interface Conversation {
   projectPath: string;
   title: string | null;
   codexThreadId: string | null;
+  /** Which CLI owns this conversation. Locked at create time. Pre-multi-CLI
+   *  rows are backfilled to 'codex' via db migration v3. */
+  agentId: AgentId;
   createdAt: number;
   updatedAt: number;
 }
@@ -88,6 +91,9 @@ export interface ConversationsResponse {
 
 export interface CreateConversationRequest {
   projectPath: string;
+  /** Which CLI to associate the conversation with. Defaults to 'codex'
+   *  when omitted for backward compat. */
+  agentId?: AgentId;
   title?: string;
 }
 

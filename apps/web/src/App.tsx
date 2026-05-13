@@ -681,6 +681,16 @@ export function App() {
     closeRunSub();
     setConversationId(id);
     localStorage.setItem(LS_CONVERSATION, id);
+    // Snap the active CLI to whichever one owns this conversation. The
+    // conversation's agent_id is locked at create time; switching CLIs
+    // mid-thread would break resume (codex thread id ≠ claude session id).
+    const conv = conversations.find((c) => c.id === id);
+    if (conv?.agentId && agent?.id !== conv.agentId) {
+      void fetchAgents().then((r) => {
+        const next = r.agents.find((a) => a.id === conv.agentId) ?? null;
+        if (next) setAgent(next);
+      });
+    }
     const [r, active] = await Promise.all([
       fetchMessages(id),
       fetchActiveRun(id).catch(() => ({ active: false }) as { active: false }),
@@ -761,12 +771,19 @@ export function App() {
 
   const newConversation = useCallback(async () => {
     if (!project) return;
-    const { conversation } = await createConversation(project.path);
+    // New conversation is locked to the currently-selected CLI. Switching
+    // CLIs later will require the user to start ANOTHER new conversation
+    // (we don't let one conversation span Codex + Claude — the session
+    // ids aren't compatible).
+    const { conversation } = await createConversation(
+      project.path,
+      (agent?.id as 'codex' | 'claude-code' | undefined) ?? 'codex',
+    );
     setConversations((prev) => [conversation, ...prev]);
     setConversationId(conversation.id);
     localStorage.setItem(LS_CONVERSATION, conversation.id);
     setTurns([]);
-  }, [project]);
+  }, [project, agent?.id]);
 
   const deleteConversationAt = useCallback(
     async (id: string) => {
@@ -2357,6 +2374,27 @@ function HistoryDropdown(props: {
                 </button>
               </div>
               <div className="proj-dropdown-sub">
+                <span
+                  style={{
+                    display: 'inline-block',
+                    fontSize: 9,
+                    fontWeight: 600,
+                    letterSpacing: 0.3,
+                    padding: '1px 5px',
+                    marginRight: 6,
+                    borderRadius: 3,
+                    fontFamily: 'var(--font-mono)',
+                    background:
+                      c.agentId === 'claude-code'
+                        ? 'rgba(168, 85, 247, 0.18)'
+                        : 'rgba(110, 231, 142, 0.18)',
+                    color: c.agentId === 'claude-code' ? '#c084fc' : '#6ee78e',
+                    textTransform: 'uppercase',
+                  }}
+                  title={`Created with ${c.agentId === 'claude-code' ? 'Claude Code' : 'Codex'}`}
+                >
+                  {c.agentId === 'claude-code' ? 'claude' : 'codex'}
+                </span>
                 {c.codexThreadId ? 'thread saved' : 'no thread yet'} · {timeAgo(c.updatedAt)}
               </div>
             </div>

@@ -96,4 +96,20 @@ function migrate(d: Database.Database) {
       INSERT INTO schema_version (version) VALUES (2);
     `);
   }
+
+  if (current < 3) {
+    // Bind each conversation to the agent CLI that created it. Switching
+    // CLIs mid-conversation broke things — Codex's thread_id doesn't
+    // resume in Claude Code and vice versa. Now: the conversation
+    // remembers its CLI, and selecting an old conversation snaps the
+    // active CLI back to the one that owns it. Settings becomes "default
+    // for NEW conversations", not "force-switch right now".
+    //
+    // Backfill: existing rows get 'codex' since that was the only option
+    // before multi-CLI shipped.
+    d.exec(`
+      ALTER TABLE conversations ADD COLUMN agent_id TEXT NOT NULL DEFAULT 'codex';
+      INSERT INTO schema_version (version) VALUES (3);
+    `);
+  }
 }

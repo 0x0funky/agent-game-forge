@@ -172,11 +172,15 @@ export const fetchConversations = (projectPath: string) =>
     `/api/conversations?projectPath=${encodeURIComponent(projectPath)}`,
   );
 
-export const createConversation = (projectPath: string, title?: string) =>
+export const createConversation = (
+  projectPath: string,
+  agentId: 'codex' | 'claude-code' = 'codex',
+  title?: string,
+) =>
   jsonFetch<{ conversation: Conversation }>('/api/conversations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ projectPath, title } satisfies CreateConversationRequest),
+    body: JSON.stringify({ projectPath, agentId, title } satisfies CreateConversationRequest),
   });
 
 export const removeConversation = (id: string) =>

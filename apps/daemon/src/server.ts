@@ -79,6 +79,7 @@ import {
 import type { PackLayout } from '@ogf/contracts';
 import type {
   AgentEvent,
+  AgentId,
   AgentsResponse,
   AppendCommentMessageRequest,
   AppendCommentMessageResponse,
@@ -1138,7 +1139,8 @@ export function createServer() {
     if (!body?.projectPath) return res.status(400).json({ error: 'projectPath required' });
     const project = getProject(body.projectPath);
     if (!project) return res.status(404).json({ error: 'project not found; open it first' });
-    const row = createConversation(body.projectPath, body.title);
+    const agentId = isAgentId(body.agentId ?? '') ? (body.agentId as AgentId) : 'codex';
+    const row = createConversation(body.projectPath, agentId, body.title);
     res.json({ conversation: rowToConversation(row) });
   });
 
@@ -1178,7 +1180,9 @@ export function createServer() {
       body.title ??
       (replayed.messages.find((m) => m.role === 'user')?.content?.slice(0, 60) || 'Imported Codex session');
 
-    const conv = createConversation(project.path, title);
+    // Imported Codex session → conversation owned by 'codex' (only Codex
+    // produces these JSONL sessions on disk).
+    const conv = createConversation(project.path, 'codex', title);
     setConversationThreadId(conv.id, body.sessionId);
 
     let importedCount = 0;
@@ -1256,8 +1260,20 @@ export function createServer() {
         });
       }
       const project = getProject(body.projectPath) ?? upsertProject(body.projectPath);
-      conv = createConversation(project.path);
+      // Auto-created conversation inherits the CLI from the run request —
+      // this is "user typed a new prompt without picking a conversation",
+      // so use whatever CLI they have active.
+      conv = createConversation(project.path, body.agentId);
       conversationId = conv.id;
+    } else if (conv.agent_id !== body.agentId) {
+      // Conversation is locked to its original CLI. Trying to run a
+      // different CLI in this conversation would either fail (incompatible
+      // session id format) or silently lose context. Reject with a clear
+      // error so the UI can surface the conflict.
+      return res.status(409).json({
+        error: `Conversation belongs to ${conv.agent_id}, not ${body.agentId}. Start a new conversation to switch CLIs.`,
+        conversationAgentId: conv.agent_id,
+      });
     }
 
     // Dedupe: don't spawn a second codex when one is already running for
@@ -2320,6 +2336,7 @@ function rowToConversation(r: {
   project_path: string;
   title: string | null;
   codex_thread_id: string | null;
+  agent_id: AgentId;
   created_at: number;
   updated_at: number;
 }): Conversation {
@@ -2328,6 +2345,7 @@ function rowToConversation(r: {
     projectPath: r.project_path,
     title: r.title,
     codexThreadId: r.codex_thread_id,
+    agentId: r.agent_id,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import type { AgentId } from '@ogf/contracts';
 import { getDb } from './db.js';
 
 export interface ConversationRow {
@@ -7,6 +8,10 @@ export interface ConversationRow {
   project_path: string;
   title: string | null;
   codex_thread_id: string | null;
+  /** Which agent CLI created this conversation. Locked at create time so
+   *  selecting an old conversation snaps the active CLI back. Backfilled
+   *  to 'codex' on schema migration v3 for pre-multi-CLI rows. */
+  agent_id: AgentId;
   created_at: number;
   updated_at: number;
 }
@@ -25,19 +30,25 @@ function normalize(p: string): string {
   return path.resolve(p);
 }
 
-export function createConversation(projectPath: string, title?: string): ConversationRow {
+export function createConversation(
+  projectPath: string,
+  agentId: AgentId,
+  title?: string,
+): ConversationRow {
   const db = getDb();
   const now = Date.now();
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO conversations (id, project_path, title, codex_thread_id, created_at, updated_at)
-     VALUES (?, ?, ?, NULL, ?, ?)`,
-  ).run(id, normalize(projectPath), title ?? null, now, now);
+    `INSERT INTO conversations
+       (id, project_path, title, codex_thread_id, agent_id, created_at, updated_at)
+     VALUES (?, ?, ?, NULL, ?, ?, ?)`,
+  ).run(id, normalize(projectPath), title ?? null, agentId, now, now);
   return {
     id,
     project_path: normalize(projectPath),
     title: title ?? null,
     codex_thread_id: null,
+    agent_id: agentId,
     created_at: now,
     updated_at: now,
   };
