@@ -51,7 +51,12 @@ When the user gives a genre instead of a technical map mode, choose the mode con
 
 ## Image Generation First
 
-This skill is image-generation-first for visual assets. Use built-in `image_gen` as the default creative art source for base maps, in-world reference mockups, dressed references, stage references, prop sheets, prop sprites, tileset art, parallax layers, battle backgrounds, and other visible map assets.
+This skill is image-generation-first for visual assets. Generate raw images via the active agent's image route:
+
+- **Codex CLI** (when running under Codex): built-in `image_gen` tool — preferred for Codex users (Codex subscription quota). Reference images via `view_image` first.
+- **Claude Code / any CLI without built-in image gen**: shell out to `python .agents/tools/gen-image.py "<prompt>" <output.png>`. The OGF daemon routes to Gemini 2.5 Flash Image or OpenAI gpt-image-1 using the API key configured in OGF Settings. For **map / parallax / scene** images pass `--no-magenta-bg` (the auto-inject is on by default for sprite work; map images want a normal-looking scene). For reference: `--ref <path>` repeatable.
+
+Both routes produce equivalent PNGs and feed into the same post-processing scripts (`process_parallax_layer.py`, `extract_prop_pack.py`, etc.).
 
 The agent must write the creative image prompts itself. Do not use scripts to generate creative prompts or to procedurally draw final visual art. Scripts may assemble, slice, chroma-key, crop, validate, compose previews, emit JSON metadata, and wire image-generated assets into engine-native files such as Godot `.tscn` scenes.
 

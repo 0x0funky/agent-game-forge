@@ -172,8 +172,15 @@ Step 1: Build the prompt manually following the template in SKILL.md /
         `python .agents/skills/<name>/scripts/<name>.py build-prompt ...`
         for a starting draft, but you usually write it yourself.)
 
-Step 2: Call your built-in `image_gen` tool with that prompt.
-        ← image_gen IS the tool. Codex has it built in. Use it.
+Step 2: Generate the raw image via the route your CLI exposes:
+        - Codex CLI → built-in `image_gen` tool (preferred — Codex
+          subscription quota covers it).
+        - Claude Code / any other CLI without built-in image gen →
+          `python .agents/tools/gen-image.py "<prompt>" <output.png>
+                 [--ref PATH] [--no-magenta-bg] [--provider gemini|openai]`
+          The OGF daemon routes to Gemini 2.5 Flash Image or OpenAI
+          gpt-image-1 using the API key you set in OGF Settings.
+        Both routes produce equivalent PNGs.
 
 Step 3: Postprocess by shelling out to the script:
         `python .agents/skills/<name>/scripts/<name>.py process ...`
@@ -181,22 +188,22 @@ Step 3: Postprocess by shelling out to the script:
         transparent export, prompt-used.txt audit log.
 ```
 
-That is the entire mechanism. SKILL.md is the manual; `image_gen` + the postprocess script are the tools.
+That is the entire mechanism. SKILL.md is the manual; the image route + the postprocess script are the tools.
 
 ### "Never use raw image_gen" — what this actually means
 
-Earlier convention versions said "never raw image_gen" to stop agents from skipping the SKILL.md template + postprocess. **It does NOT mean image_gen is forbidden.** image_gen is REQUIRED — it's the only image-producing tool you have. The rule is about the wrapper, not the tool:
+Earlier convention versions said "never raw image_gen" to stop agents from skipping the SKILL.md template + postprocess. **It does NOT mean image generation is forbidden.** Some image route IS REQUIRED — it's the only way to produce raw art. The rule is about the wrapper, not the tool:
 
 - ❌ Wrong reading: "image_gen is banned, find another tool" → search for a non-existent `$generate2dsprite` tool, give up, declare environment broken.
-- ✅ Right reading: "image_gen must be used through the SKILL.md procedure" → build prompt per template, call image_gen, run postprocess script.
+- ✅ Right reading: "image generation must be used through the SKILL.md procedure" → build prompt per template, call your CLI's image route (Codex `image_gen` or `gen-image.py`), run postprocess script.
 
-If you cannot find a callable named `generate2dsprite` / `generate2dmap`: that is normal and expected. Proceed with image_gen + the script. Do **not** write a "skill registry missing" blocker into spec.md — there is no registry, just SKILL.md + scripts + image_gen, and all three are present in any OGF project.
+If you cannot find a callable named `generate2dsprite` / `generate2dmap`: that is normal and expected. Proceed with the image route + the postprocess script. Do **not** write a "skill registry missing" blocker into spec.md — there is no registry, just SKILL.md + scripts + an image route, and all are present in any OGF project.
 
 ### When to actually stop
 
 Real blockers (these are rare):
 
-- `image_gen` tool genuinely missing from your tool list (not codex — escalate to user).
+- No image route available — Codex's `image_gen` missing AND `gen-image.py` daemon returns "no API key set" for all providers. Tell the user to either install Codex CLI or add an OpenAI/Gemini key in OGF Settings.
 - The `.agents/skills/<name>/scripts/<name>.py` file is missing or corrupted.
 - The script raises a Python error you cannot fix.
 

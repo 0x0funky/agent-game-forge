@@ -66,6 +66,17 @@ Sky stays opaque — no magenta, no chroma-key step.
 
 ## Generation procedure (per layer)
 
+> **Image route**: under Codex CLI, call `image_gen` with the prompts below.
+> Under Claude Code (or any other CLI), call
+> `python .agents/tools/gen-image.py "<prompt>" raw-<layer>.png --no-magenta-bg`
+> for **all four** parallax layers — the prompts already control magenta
+> placement explicitly (sky has none; far/mid/near specify magenta where
+> transparency is wanted), and `process_parallax_layer.py` handles the
+> chroma-key + despill. Letting the wrapper auto-inject a generic
+> "magenta background" instruction would fight the sky prompt's "fully
+> opaque" rule. Both routes produce the same ~1672×941 raw output that
+> the script then resizes to 1280×720.
+
 ### 1. Sky (~30-60s)
 
 ```
