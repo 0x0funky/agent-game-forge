@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="apps/web/public/ogf-logo-256.png" alt="Open Game Forge" width="128" height="128" />
+  <img src="apps/web/public/agf-banner.png" alt="Agent Game Forge" width="640" />
 </p>
-
-<h1 align="center">Open Game Forge</h1>
 
 <p align="center">
   <b>The local-first, bring-your-own-agent 2D game IDE.</b><br/>
@@ -24,9 +22,7 @@
 
 ---
 
-Open Game Forge (**OGF**) is an open-source desktop IDE that lets an AI coding agent build complete 2D games for you — sprites, parallax backgrounds, physics, hazards, pickups, scene layouts — and gives you a visual editor to drag-tweak whatever the agent got wrong. **You pick the agent** (Codex CLI or Claude Code), **you pick the image model** (Gemini 2.5 Flash Image or OpenAI gpt-image-1), and the resulting game is plain JS + Canvas — runs in any browser, no framework lock-in.
-
-> No other 2D game IDE does this combination today: agent-agnostic + local-first + BYO API keys + open source. GDevelop locks you to GDevelop AI; Rosebud / Bolt are cloud-only; Cursor doesn't ship game pipelines; Unity Muse is engine-locked.
+Agent Game Forge (**AGF**) is an open-source desktop IDE that lets an AI coding agent build complete 2D games for you — sprites, parallax backgrounds, physics, hazards, pickups, scene layouts — and gives you a visual editor to drag-tweak whatever the agent got wrong. **You pick the agent** (Codex CLI or Claude Code), **you pick the image model** (Gemini 2.5 Flash Image or OpenAI gpt-image-1), and the resulting game is plain JS + Canvas — runs in any browser, no framework lock-in.
 
 ---
 
@@ -46,7 +42,7 @@ Open Game Forge (**OGF**) is an open-source desktop IDE that lets an AI coding a
 
 > Coming soon: 90-second demo video showing prompt → playable platformer → live edit → CLI switch.
 
-**Hero shot** (the OGF window):
+**Hero shot** (the AGF window):
 
 > _Insert hero screenshot here once available_
 
@@ -112,28 +108,13 @@ You ─→  │  Web UI      │ ←→ │  Daemon (Node + SQLite)  │ ←→ 
 
 **1. You talk to the agent in chat.** The web UI streams the conversation; SSE relays every token + tool call.
 
-**2. The agent reads OGF conventions and skills.** Each project is vendored with `.ogf/conventions/` (universal + per-genre rules) and `.agents/skills/` (sprite + map generation procedures). The agent follows the recipes — it doesn't reinvent the pipeline.
+**2. The agent reads AGF conventions and skills.** Each project is vendored with `.ogf/conventions/` (universal + per-genre rules) and `.agents/skills/` (sprite + map generation procedures). The agent follows the recipes — it doesn't reinvent the pipeline.
 
 **3. For images, the agent calls the daemon's `/api/gen-image`** (via `python .agents/tools/gen-image.py` or direct `curl`). The daemon routes to Gemini or OpenAI using your saved API key. Codex users with the built-in `image_gen` tool can use that instead — both paths produce equivalent PNGs.
 
 **4. The scene editor reads + writes the same JSON files** the agent creates. Drag a platform; the editor commits a JSON patch. Refresh the agent's view; it sees the update.
 
 **5. The runtime is the project itself.** Generated games are pure JS + Canvas — `index.html`, `src/*.js`, `data/*.json`, `assets/`. Push the folder to GitHub Pages. Done.
-
----
-
-## 🆚 vs other 2D game tools
-
-| | OGF | Rosebud | Bolt / Lovable | Replit Agent | GDevelop AI | OpenGame |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| Local-first | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| Open source | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| Pick your agent CLI | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| BYO API keys | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Sprite + parallax pipeline | ✅ | partial | ❌ | partial | partial | ❌ |
-| Visual scene editor | ✅ | hosted | ❌ | hosted | ✅ | ❌ |
-| Output portable (vanilla JS) | ✅ | partial | n/a | partial | ❌ (GDevelop runtime) | ✅ |
-| Cost-transparent | ✅ | ❌ | ❌ | ❌ | n/a | n/a |
 
 ---
 
@@ -223,8 +204,8 @@ We're pre-launch. The codebase is small enough that PRs are welcome, but please 
 
 ## 🔐 Security & data
 
-- **Your code stays on your machine.** OGF is local-first. Daemon binds to `127.0.0.1`; nothing leaves your machine except calls to the AI provider you chose.
-- **API keys** are stored at `~/.ogf/secrets.json` with file mode 600 (owner-only). They never enter git, never appear in OGF's logs.
+- **Your code stays on your machine.** AGF is local-first. Daemon binds to `127.0.0.1`; nothing leaves your machine except calls to the AI provider you chose.
+- **API keys** are stored at `~/.ogf/secrets.json` with file mode 600 (owner-only). They never enter git, never appear in AGF's logs.
 - **Conversations** are stored in `~/.ogf/ogf.db` (SQLite). Delete the file to reset.
 
 ---

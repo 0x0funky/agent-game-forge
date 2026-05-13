@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="apps/web/public/ogf-logo-256.png" alt="Open Game Forge" width="128" height="128" />
+  <img src="apps/web/public/agf-banner.png" alt="Agent Game Forge" width="640" />
 </p>
-
-<h1 align="center">Open Game Forge</h1>
 
 <p align="center">
   <b>本機優先、自選 AI agent 的 2D 遊戲 IDE。</b><br/>
@@ -24,9 +22,7 @@
 
 ---
 
-Open Game Forge (簡稱 **OGF**) 是一個開源的桌面 IDE,讓 AI coding agent 幫你做出完整的 2D 遊戲 — 角色 sprite、parallax 背景、物理、傷害區、收集物、場景配置 — 同時提供一個視覺編輯器,讓你拖曳調整 agent 沒做對的部分。**你選 agent**(Codex CLI 或 Claude Code)、**你選圖片生成 model**(Gemini 2.5 Flash Image 或 OpenAI gpt-image-1),產出的遊戲是純 JS + Canvas — 任何瀏覽器都能跑,沒有 framework 綁定。
-
-> 目前市面上沒有任何 2D 遊戲 IDE 同時具備這幾項:agent-agnostic + 本機優先 + 自帶 API key + 開源。GDevelop 鎖 GDevelop AI、Rosebud / Bolt 純雲端、Cursor 沒有 game pipeline、Unity Muse 鎖 Unity。
+Agent Game Forge (簡稱 **AGF**) 是一個開源的桌面 IDE,讓 AI coding agent 幫你做出完整的 2D 遊戲 — 角色 sprite、parallax 背景、物理、傷害區、收集物、場景配置 — 同時提供一個視覺編輯器,讓你拖曳調整 agent 沒做對的部分。**你選 agent**(Codex CLI 或 Claude Code)、**你選圖片生成 model**(Gemini 2.5 Flash Image 或 OpenAI gpt-image-1),產出的遊戲是純 JS + Canvas — 任何瀏覽器都能跑,沒有 framework 綁定。
 
 ---
 
@@ -46,7 +42,7 @@ Open Game Forge (簡稱 **OGF**) 是一個開源的桌面 IDE,讓 AI coding agen
 
 > 即將上線:90 秒 demo 影片,從 prompt → 可玩 platformer → live edit → 切 CLI。
 
-**Hero shot**(OGF 主畫面):
+**Hero shot**(AGF 主畫面):
 
 > _尚未截圖_
 
@@ -112,28 +108,13 @@ npm run dev
 
 **1. 你在 chat 跟 agent 對話**。Web UI 透過 SSE 即時 stream 每個 token 跟工具呼叫。
 
-**2. Agent 讀 OGF 的 conventions 和 skills**。每個專案都 vendor 一份 `.ogf/conventions/`(通用 + 各 genre 規則)和 `.agents/skills/`(sprite + map 生成程序)。Agent 跟著 recipe 走,不會自己重發明流程。
+**2. Agent 讀 AGF 的 conventions 和 skills**。每個專案都 vendor 一份 `.ogf/conventions/`(通用 + 各 genre 規則)和 `.agents/skills/`(sprite + map 生成程序)。Agent 跟著 recipe 走,不會自己重發明流程。
 
 **3. 圖片生成走 daemon 的 `/api/gen-image`**(透過 `python .agents/tools/gen-image.py` 或直接 `curl`)。Daemon 用你的 API key 路由到 Gemini 或 OpenAI。Codex 用戶可以直接用內建的 `image_gen` — 兩條路徑出來的 PNG 一樣。
 
 **4. Scene editor 跟 agent 讀寫同一份 JSON**。拖一個 platform → editor commit JSON patch;agent 下次看也看得到。
 
 **5. Runtime 就是專案本身**。生成的遊戲是純 JS + Canvas — `index.html`、`src/*.js`、`data/*.json`、`assets/`。推到 GitHub Pages 直接跑。
-
----
-
-## 🆚 跟其他 2D 遊戲工具比較
-
-| | OGF | Rosebud | Bolt / Lovable | Replit Agent | GDevelop AI | OpenGame |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|
-| 本機優先 | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| 開源 | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| 自選 agent CLI | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| 自帶 API key | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Sprite + parallax pipeline | ✅ | 部分 | ❌ | 部分 | 部分 | ❌ |
-| 視覺場景編輯器 | ✅ | 雲端 | ❌ | 雲端 | ✅ | ❌ |
-| 輸出可攜(vanilla JS) | ✅ | 部分 | 不適用 | 部分 | ❌(綁 GDevelop) | ✅ |
-| 成本透明 | ✅ | ❌ | ❌ | ❌ | 不適用 | 不適用 |
 
 ---
 
@@ -223,8 +204,8 @@ npm run dev           # 三個都 watch mode(daemon 用 tsx 熱重載)
 
 ## 🔐 安全 & 資料
 
-- **程式碼留在你的機器上**。OGF 是本機優先。Daemon bind 到 `127.0.0.1`;只有呼叫 AI 供應商時才會出本機。
-- **API keys** 存在 `~/.ogf/secrets.json`,file mode 600(只有 owner 能讀)。永遠不會進 git、不會出現在 OGF 的 log。
+- **程式碼留在你的機器上**。AGF 是本機優先。Daemon bind 到 `127.0.0.1`;只有呼叫 AI 供應商時才會出本機。
+- **API keys** 存在 `~/.ogf/secrets.json`,file mode 600(只有 owner 能讀)。永遠不會進 git、不會出現在 AGF 的 log。
 - **對話紀錄** 存在 `~/.ogf/ogf.db`(SQLite)。要清空就刪掉這檔案。
 
 ---
