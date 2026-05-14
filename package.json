@@ -2,6 +2,7 @@
   "name": "open-game-forge",
   "version": "0.0.1",
   "private": true,
+  "license": "Apache-2.0",
   "description": "Agent-native 2D game editor — Codex CLI + Godot/Unity/WebGL",
   "workspaces": [
     "packages/*",

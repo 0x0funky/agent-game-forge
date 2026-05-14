@@ -25,7 +25,7 @@
 
 <p align="center">
   <a href="https://github.com/0x0funky/agent-game-forge/stargazers"><img src="https://img.shields.io/github/stars/0x0funky/agent-game-forge?style=flat" alt="stars"/></a>
-  <img src="https://img.shields.io/badge/license-pending-lightgrey" alt="license"/>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license"/></a>
   <img src="https://img.shields.io/badge/status-pre--launch-blue" alt="status"/>
   <img src="https://img.shields.io/badge/node-%E2%89%A520-success" alt="node 20+"/>
 </p>
@@ -236,7 +236,7 @@ npm run dev           # watch-режим для всех трёх (daemon hot-re
 
 ## 📜 Лицензия
 
-Лицензия в процессе — на момент запуска будет дружественной к open-source (MIT или Apache-2.0). Исходный код публичный; пожалуйста, не распространяйте коммерческие форки до того, как лицензия будет установлена.
+Лицензировано под [Apache License, Version 2.0](LICENSE). Вы можете свободно использовать, изменять, форкать и распространять — в том числе коммерчески. Просто сохраняйте уведомление о copyright и лицензии.
 
 ---
 

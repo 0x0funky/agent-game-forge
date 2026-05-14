@@ -25,7 +25,7 @@
 
 <p align="center">
   <a href="https://github.com/0x0funky/agent-game-forge/stargazers"><img src="https://img.shields.io/github/stars/0x0funky/agent-game-forge?style=flat" alt="stars"/></a>
-  <img src="https://img.shields.io/badge/license-pending-lightgrey" alt="license"/>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license"/></a>
   <img src="https://img.shields.io/badge/status-pre--launch-blue" alt="status"/>
   <img src="https://img.shields.io/badge/node-%E2%89%A520-success" alt="node 20+"/>
 </p>
@@ -236,7 +236,7 @@ npm run dev           # 세 가지 모두 watch 모드 (데몬은 tsx로 핫 리
 
 ## 📜 라이선스
 
-라이선스 미정 — 출시 시점에 오픈소스 친화적 (MIT 또는 Apache-2.0)이 될 것입니다. 소스는 공개되어 있습니다; 라이선스가 정해지기 전까지는 상업적 포크 재배포를 자제해 주세요.
+[Apache License, Version 2.0](LICENSE) 하에 라이선스됩니다. 자유롭게 사용, 수정, 포크, 배포할 수 있습니다 — 상업적 사용 포함. copyright 및 license 고지만 유지해 주세요.
 
 ---
 

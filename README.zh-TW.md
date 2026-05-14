@@ -25,7 +25,7 @@
 
 <p align="center">
   <a href="https://github.com/0x0funky/agent-game-forge/stargazers"><img src="https://img.shields.io/github/stars/0x0funky/agent-game-forge?style=flat" alt="stars"/></a>
-  <img src="https://img.shields.io/badge/license-pending-lightgrey" alt="license"/>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license"/></a>
   <img src="https://img.shields.io/badge/status-pre--launch-blue" alt="status"/>
   <img src="https://img.shields.io/badge/node-%E2%89%A520-success" alt="node 20+"/>
 </p>
@@ -236,7 +236,7 @@ npm run dev           # 三個都 watch mode(daemon 用 tsx 熱重載)
 
 ## 📜 授權
 
-License 待定 — launch 時會用 open-source friendly 的(MIT 或 Apache-2.0)。原始碼是公開的;在 license 確定前請不要做商業 fork。
+採用 [Apache License, Version 2.0](LICENSE) 授權。可自由使用、修改、fork、發布 —— 商用或非商用都可以。只要保留 copyright 與 license 聲明即可。
 
 ---
 

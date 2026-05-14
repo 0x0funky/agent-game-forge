@@ -25,7 +25,7 @@
 
 <p align="center">
   <a href="https://github.com/0x0funky/agent-game-forge/stargazers"><img src="https://img.shields.io/github/stars/0x0funky/agent-game-forge?style=flat" alt="stars"/></a>
-  <img src="https://img.shields.io/badge/license-pending-lightgrey" alt="license"/>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license"/></a>
   <img src="https://img.shields.io/badge/status-pre--launch-blue" alt="status"/>
   <img src="https://img.shields.io/badge/node-%E2%89%A520-success" alt="node 20+"/>
 </p>
@@ -236,7 +236,7 @@ Pre-launch 段階です。コードベースは小さく、PR は歓迎ですが
 
 ## 📜 ライセンス
 
-ライセンス未定 — launch 時にオープンソースフレンドリーなもの(MIT または Apache-2.0)を採用予定。ソースは公開しているが、ライセンス確定前の商用フォークは控えてください。
+[Apache License, Version 2.0](LICENSE) の下でライセンスされています。商用・非商用問わず、自由に使用・改変・フォーク・配布できます。copyright とライセンス表示だけ残してください。
 
 ---
 

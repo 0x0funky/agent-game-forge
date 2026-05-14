@@ -25,7 +25,7 @@
 
 <p align="center">
   <a href="https://github.com/0x0funky/agent-game-forge/stargazers"><img src="https://img.shields.io/github/stars/0x0funky/agent-game-forge?style=flat" alt="stars"/></a>
-  <img src="https://img.shields.io/badge/license-pending-lightgrey" alt="license"/>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="license"/></a>
   <img src="https://img.shields.io/badge/status-pre--launch-blue" alt="status"/>
   <img src="https://img.shields.io/badge/node-%E2%89%A520-success" alt="node 20+"/>
 </p>
@@ -236,7 +236,7 @@ npm run dev           # وضع watch للجميع (الـ daemon يُعيد ال
 
 ## 📜 الترخيص
 
-الترخيص قيد التحديد — سيكون صديقاً للمصدر المفتوح (MIT أو Apache-2.0) عند الإطلاق. المصدر عام؛ من فضلك لا تُعِد توزيع نسخ تجارية مُتفرّعة قبل تحديد الترخيص.
+مرخّص بموجب [Apache License, Version 2.0](LICENSE). يمكنك الاستخدام والتعديل و fork والنشر بحرية — تجاريّاً كان أو غير ذلك. فقط احتفظ بإشعار حقوق النشر والترخيص.
 
 ---
 
