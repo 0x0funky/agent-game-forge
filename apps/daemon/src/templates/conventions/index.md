@@ -11,6 +11,9 @@ This is the contract between Codex and the OGF editor. The editor renders + edit
   runtime-patterns.md    ← REQUIRED. 8 universal 2D-game runtime patterns
                            (delta time, AABB, anim loop, FSM, pooling, etc.)
                            These are the same across every genre.
+  wrap-existing-project.md ← Read ONLY if wrapping/converting an existing
+                             non-OGF project (sidecar or migrate mode).
+                             NOT for fresh OGF scaffolds.
   genres/
     side-scroll.md       ← if your project genre = side-scroller / platformer
     top-down-rpg.md      ← if your project genre = top-down RPG
@@ -31,9 +34,12 @@ This is the contract between Codex and the OGF editor. The editor renders + edit
 1. `.ogf/conventions/common.md` — always
 2. `.ogf/conventions/runtime-patterns.md` — always (these are universal)
 3. `.ogf/conventions/genres/<your-genre>.md` — based on spec.md §1 genre
-4. `.agents/skills/generate2dmap/agents/openai.yaml` — distilled invocation defaults
-5. `.agents/skills/generate2dsprite/agents/openai.yaml` — same
-6. The relevant `SKILL.md` and `references/*.md` if a deeper question
+4. `.ogf/conventions/wrap-existing-project.md` — ONLY if the user asked
+   you to "wrap / convert / OGF-fy / sidecar" an existing non-OGF
+   project. Skip for fresh scaffolds.
+5. `.agents/skills/generate2dmap/agents/openai.yaml` — distilled invocation defaults
+6. `.agents/skills/generate2dsprite/agents/openai.yaml` — same
+7. The relevant `SKILL.md` and `references/*.md` if a deeper question
 
 ## Philosophy
 

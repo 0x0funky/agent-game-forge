@@ -276,6 +276,41 @@ Use **inline** when the entity appears once or twice and doesn't need shared sta
 
 These contain everything about: side-scroll segment counts, platform strategies, parallax layer organization, prop pack vs strip vs tilemap, sprite frame layouts per action, anchor + collision extraction, magenta cleanup, QC. **OGF defers to them.** If they contradict this file, the skill files win.
 
+## Two project flows — fresh scaffold vs wrap existing
+
+Before Phase 0, identify which flow this conversation is in:
+
+### Fresh OGF scaffold (default)
+
+The directory is empty or contains only a minimal OGF skeleton. You're
+building a new game from scratch. → Continue to **Phase 0** below.
+
+### Wrap / convert / OGF-fy an existing project
+
+The directory contains a working game project (existing `src/`, `assets/`,
+`data/`, README) that the user wants to bring under OGF for asset
+browsing, scene editing, or future regeneration. The OGF runtime is NOT
+the source of truth for this game.
+
+→ **Read `.ogf/conventions/wrap-existing-project.md` FIRST** before doing
+anything else. It defines:
+
+- Sidecar Mode vs Migrate Mode + when to pick each
+- The hard rule: every `data/<scene>.json` MUST have top-level `mapSize`
+  + (`background` OR `layers` OR `props`) regardless of mode, so the
+  Scene editor can open it
+- Validation checklist before declaring done
+
+> ⚠️ **Recurring failure** (test-2drpg-pokemon, 2026): agent treated
+> "sidecar mode" as license to invent ad-hoc level shape (`map.image`,
+> `map.width/height` nested inside a `map` object) and never put
+> `mapSize` at top level. Scene editor failed with `JSON file is not a
+> level (missing mapSize)` on every scene. Reading
+> wrap-existing-project.md catches this.
+
+Then skip Phase 0 (which is for fresh scaffolds) and go directly to
+authoring the spec + sidecar JSON files per wrap-existing-project.md.
+
 ## Phase 0 — install foundation seed (BEFORE Phase 1)
 
 Before running Phase 1 of your spec's phase plan, decide whether you can adopt a hand-built reference scaffold instead of generating every src/ and data/ file from scratch. This step takes 30 seconds and saves hours.
